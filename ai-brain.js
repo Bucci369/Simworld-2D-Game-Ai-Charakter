@@ -96,6 +96,65 @@ class AIBrain {
         }
     }
 
+    // Wrapper method for game compatibility - ROBUST VERSION
+    async makeDecision(environmentData, availableActions) {
+        try {
+            // Prevent endless loops - rate limit calls
+            const now = Date.now();
+            if (this.lastDecisionTime && (now - this.lastDecisionTime) < 100) {
+                // Too frequent calls - return cached decision
+                return this.cachedDecision || { action: 'idle', confidence: 0.5 };
+            }
+            this.lastDecisionTime = now;
+
+            // Convert environmentData format to what makeIntelligentDecision expects
+            const gameState = {
+                gameTime: environmentData.gameTime || 480,
+                isNight: (environmentData.gameTime || 480) > 1320 || (environmentData.gameTime || 480) < 360,
+                characters: window.gameInstance?.characters || [],
+                terrain: window.gameInstance?.terrain || []
+            };
+            
+            // Find the character from game instance with better error handling
+            const character = window.gameInstance?.characters?.find(c => c.aiBrain === this);
+            if (!character) {
+                console.warn('Could not find character for AI brain - using simple decision');
+                return { action: this.getSimpleDecision(environmentData), confidence: 0.3 };
+            }
+            
+            // Use simple rule-based decision if neural network not ready
+            if (this.useNeuralNetwork && !this.networkInitialized) {
+                const simpleDecision = this.getSimpleDecision(environmentData);
+                this.cachedDecision = { action: simpleDecision, confidence: 0.4 };
+                return this.cachedDecision;
+            }
+            
+            const decision = await this.makeIntelligentDecision(gameState, character);
+            const result = { 
+                action: decision, 
+                confidence: this.useNeuralNetwork ? 0.8 : 0.6 
+            };
+            
+            this.cachedDecision = result;
+            return result;
+            
+        } catch (error) {
+            console.warn(`AI makeDecision error for ${this.personality?.name}:`, error.message);
+            // Return safe fallback
+            const fallback = { action: this.getSimpleDecision(environmentData), confidence: 0.2 };
+            this.cachedDecision = fallback;
+            return fallback;
+        }
+    }
+
+    // Simple decision fallback to prevent loops
+    getSimpleDecision(environmentData) {
+        if (environmentData.hunger > 70) return 'gather_food';
+        if (environmentData.energy < 30) return 'rest';
+        if (Math.random() < 0.3) return 'explore';
+        return 'gather_food';
+    }
+
     // Hauptmethode für intelligente Entscheidungsfindung
     async makeIntelligentDecision(gameState, character) {
         try {
@@ -204,41 +263,61 @@ class AIBrain {
         ]]);
 
         try {
-            // Vorhersage der Aktionswahrscheinlichkeiten
-            const prediction = this.decisionNetwork.predict(inputTensor);
-            const probabilities = await prediction.data();
+            // IMPROVED TENSORFLOW.JS MEMORY MANAGEMENT
+            let prediction = null;
+            let probabilities = null;
             
-            // Aktionen definieren
-            const actions = ['sammeln', 'erkunden', 'bauen', 'sozialisieren', 'essen', 'schlafen', 'lernen', 'spielen'];
-            
-            let selectedAction;
-            
-            // Erhöhte Exploration Rate für besseres Lernen
-            const adaptiveExploration = this.explorationRate * (1 + (1 - this.getSuccessRate()));
-            
-            if (Math.random() < Math.min(0.6, adaptiveExploration)) {
-                // Intelligente Exploration: bevorzuge sinnvolle Aktionen
-                const reasonableActions = this.filterReasonableActions(actions, environmentData);
-                selectedAction = reasonableActions[Math.floor(Math.random() * reasonableActions.length)];
-                console.log(`🎲 ${character.name} intelligente Exploration: ${selectedAction}`);
-            } else {
-                // Exploitation: Beste vorhergesagte Aktion
-                const bestActionIndex = probabilities.indexOf(Math.max(...probabilities));
-                selectedAction = actions[bestActionIndex];
-                console.log(`🎯 ${character.name} NN wählt: ${selectedAction} (Confidence: ${(Math.max(...probabilities) * 100).toFixed(1)}%)`);
+            try {
+                // Vorhersage der Aktionswahrscheinlichkeiten
+                prediction = this.decisionNetwork.predict(inputTensor);
+                probabilities = await prediction.data();
+                
+                // Aktionen definieren
+                const actions = ['sammeln', 'erkunden', 'bauen', 'sozialisieren', 'essen', 'schlafen', 'lernen', 'spielen'];
+                
+                let selectedAction;
+                
+                // Erhöhte Exploration Rate für besseres Lernen
+                const adaptiveExploration = this.explorationRate * (1 + (1 - this.getSuccessRate()));
+                
+                if (Math.random() < Math.min(0.6, adaptiveExploration)) {
+                    // Intelligente Exploration: bevorzuge sinnvolle Aktionen
+                    const reasonableActions = this.filterReasonableActions(actions, environmentData);
+                    selectedAction = reasonableActions[Math.floor(Math.random() * reasonableActions.length)];
+                    if (Math.random() < 0.2) { // Reduce logging frequency
+                        console.log(`🎲 ${character.name} intelligente Exploration: ${selectedAction}`);
+                    }
+                } else {
+                    // Exploitation: Beste vorhergesagte Aktion
+                    const bestActionIndex = probabilities.indexOf(Math.max(...probabilities));
+                    selectedAction = actions[bestActionIndex];
+                    if (Math.random() < 0.3) { // Reduce logging frequency
+                        console.log(`🎯 ${character.name} NN wählt: ${selectedAction} (Confidence: ${(Math.max(...probabilities) * 100).toFixed(1)}%)`);
+                    }
+                }
+                
+                // Speichere Entscheidung für späteres Lernen (but don't store tensor to avoid memory leaks)
+                this.storeDecisionForLearning(environmentData, selectedAction, null);
+                
+                return selectedAction;
+                
+            } finally {
+                // CRITICAL: Always dispose tensors to prevent memory leaks
+                if (inputTensor) {
+                    try { inputTensor.dispose(); } catch(e) { console.warn('Failed to dispose inputTensor:', e); }
+                }
+                if (prediction) {
+                    try { prediction.dispose(); } catch(e) { console.warn('Failed to dispose prediction:', e); }
+                }
             }
             
-            // Speichere Entscheidung für späteres Lernen
-            this.storeDecisionForLearning(environmentData, selectedAction, inputTensor);
-            
-            inputTensor.dispose();
-            prediction.dispose();
-            
-            return selectedAction;
-            
         } catch (error) {
-            console.error('Neural decision error:', error);
-            inputTensor.dispose();
+            console.warn('Neural decision error:', error.message);
+            // Ensure tensor cleanup even on error
+            if (inputTensor) {
+                try { inputTensor.dispose(); } catch(e) { /* ignore */ }
+            }
+            
             return this.intelligentRuleBasedDecision(environmentData, character, {
                 gameTime: window.gameInstance?.gameTime || 480,
                 isNight: window.gameInstance?.isNight || false
@@ -748,13 +827,41 @@ class AIBrain {
     }
 
     storeDecisionForLearning(environmentData, action, inputTensor) {
-        // Speichere für späteres Reinforcement Learning
+        // Speichere für späteres Reinforcement Learning (without tensor to avoid memory leaks)
         this.pendingLearning = {
             environmentData,
             action,
-            inputTensor: inputTensor.clone(),
+            inputTensor: null, // Don't store tensor to prevent memory leaks
             timestamp: Date.now()
         };
+    }
+
+    // Simple learn method for game compatibility
+    learn(action, result) {
+        try {
+            // Simple learning without complex tensor operations to prevent loops
+            if (result === 'success') {
+                this.learningStats.successfulActions++;
+            } else {
+                this.learningStats.failedActions++;
+            }
+            this.learningStats.decisionsKnnen++;
+            
+            // Update exploration rate based on success
+            if (result === 'success') {
+                this.explorationRate = Math.max(0.05, this.explorationRate * 0.99);
+            } else {
+                this.explorationRate = Math.min(0.6, this.explorationRate * 1.01);
+            }
+            
+            // Reduced logging to prevent spam
+            if (Math.random() < 0.1) { // Only log 10% of learning events
+                console.log(`📚 ${this.personality?.name} learned: ${action} → ${result}`);
+            }
+            
+        } catch (error) {
+            console.warn(`Learning error for ${this.personality?.name}:`, error.message);
+        }
     }
 
     // Neue Methode: Überdenke vorherige Entscheidungen

@@ -8,6 +8,32 @@ class VillageAI {
             window.gameInstance = this;
         }
         
+        // Einzelne Charakter-Sprites System
+        this.sprites = {
+            characters: [],  // Array von einzelnen Character-Images
+            loaded: false,
+            everWorked: false
+        };
+        this.loadCharacterSprites();
+        
+        // Vegetation und Umgebungs-Assets
+        this.vegetation = {
+            trees: [],
+            bushes: [],
+            loaded: false
+        };
+        this.loadVegetationAssets();
+        
+        // Terrain-Tiles System
+        this.terrainTiles = {
+            grass: null,
+            water: null,
+            sand: null,
+            stone: null,
+            loaded: false
+        };
+        this.loadTerrainTiles();
+        
         if (!this.canvas || !this.ctx) {
             console.error('❌ Canvas or context not found!');
             return;
@@ -80,6 +106,403 @@ class VillageAI {
         console.log('🚀 Initializing game systems...');
         this.init();
         this.gameLoop();
+    }
+    
+    // Einzelne Charakter-Sprites Loader
+    loadCharacterSprites() {
+        console.log('🔄 Loading individual character sprites...');
+        const characterFiles = ['char1.png', 'char2.png', 'char3.png', 'char4.png'];
+        let loadedCount = 0;
+        
+        // Gender mapping for sprites
+        this.sprites.characterGenders = [
+            'male',    // char1 - Male with pink shirt
+            'female',  // char2 - Female with blue dress  
+            'female',  // char3 - Female with yellow/green outfit
+            'female'   // char4 - Female with purple dress
+        ];
+        
+        characterFiles.forEach((filename, index) => {
+            const img = new Image();
+            img.onload = () => {
+                loadedCount++;
+                console.log(`✅ Character ${index + 1} loaded: ${filename} (${img.width}x${img.height}) - ${this.sprites.characterGenders[index]}`);
+                if (loadedCount === characterFiles.length) {
+                    this.sprites.loaded = true;
+                    console.log('🎉 All character sprites loaded successfully!');
+                    // Assign sprites to characters based on gender
+                    this.assignSpritesByGender();
+                }
+            };
+            img.onerror = () => {
+                console.error(`❌ Failed to load ${filename}`);
+            };
+            img.src = filename;
+            this.sprites.characters[index] = img;
+        });
+    }
+    
+    // Vegetation Assets Loader
+    loadVegetationAssets() {
+        console.log('🌲 Loading vegetation assets...');
+        
+        const treeFiles = [
+            'palm-tree.png', 'fir.png', 'pear-tree.png', 'red-tree.png', 
+            'wide-tree.png', 'snowy-tree.png', 'palm-tree2.png'
+        ];
+        
+        const bushFiles = [
+            'berry-bush.png', 'herbs.png', 'thorn-bush.png', 'thick-leafes.png',
+            'bush-low.png', 'dry-slim-bush1.png', 'olive-bush.png', 'thin-bush.png'
+        ];
+        
+        let totalAssets = treeFiles.length + bushFiles.length;
+        let loadedAssets = 0;
+        
+        // Load trees
+        treeFiles.forEach((filename, index) => {
+            const img = new Image();
+            img.onload = () => {
+                console.log(`🌳 Tree loaded: ${filename}`);
+                loadedAssets++;
+                if (loadedAssets === totalAssets) {
+                    this.vegetation.loaded = true;
+                    console.log('🌿 All vegetation assets loaded!');
+                    this.generateRandomVegetation();
+                }
+            };
+            img.onerror = () => console.error(`❌ Failed to load tree: ${filename}`);
+            img.src = filename;
+            this.vegetation.trees[index] = img;
+        });
+        
+        // Load bushes
+        bushFiles.forEach((filename, index) => {
+            const img = new Image();
+            img.onload = () => {
+                console.log(`🌿 Bush loaded: ${filename}`);
+                loadedAssets++;
+                if (loadedAssets === totalAssets) {
+                    this.vegetation.loaded = true;
+                    console.log('🌿 All vegetation assets loaded!');
+                    this.generateRandomVegetation();
+                }
+            };
+            img.onerror = () => console.error(`❌ Failed to load bush: ${filename}`);
+            img.src = filename;
+            this.vegetation.bushes[index] = img;
+        });
+    }
+    
+    // Generiere zufällige Vegetation in der Welt
+    generateRandomVegetation() {
+        console.log('🌍 Generating random vegetation...');
+        
+        if (!this.worldVegetation) {
+            this.worldVegetation = [];
+        }
+        
+        // Verteile Bäume und Büsche zufällig in der Welt
+        const worldSize = 2000; // Größe der Spielwelt
+        const centerX = this.canvas.width / 2;
+        const centerY = this.canvas.height / 2;
+        
+        // Bäume (winzig klein!)
+        for (let i = 0; i < 15; i++) {
+            this.worldVegetation.push({
+                type: 'tree',
+                x: centerX + (Math.random() - 0.5) * worldSize,
+                y: centerY + (Math.random() - 0.5) * worldSize,
+                spriteIndex: Math.floor(Math.random() * this.vegetation.trees.length),
+                scale: 0.08 + Math.random() * 0.12, // ULTRA WINZIG: 0.08x - 0.2x
+                resources: Math.floor(Math.random() * 3) + 2 // 2-4 wood
+            });
+        }
+        
+        // Büsche (mini winzig!)
+        for (let i = 0; i < 30; i++) {
+            this.worldVegetation.push({
+                type: 'bush',
+                x: centerX + (Math.random() - 0.5) * worldSize,
+                y: centerY + (Math.random() - 0.5) * worldSize,
+                spriteIndex: Math.floor(Math.random() * this.vegetation.bushes.length),
+                scale: 0.06 + Math.random() * 0.1, // MIKRO: 0.06x - 0.16x
+                resources: Math.floor(Math.random() * 2) + 1, // 1-2 food
+                harvestable: Math.random() < 0.7 // 70% haben Beeren/Kräuter
+            });
+        }
+        
+        console.log(`🌱 Generated ${this.worldVegetation.length} vegetation objects`);
+    }
+    
+    // Terrain-Tiles Loader
+    loadTerrainTiles() {
+        console.log('🗻 Loading terrain tiles...');
+        
+        const tileFiles = {
+            grass: 'seamless-64px-rpg-tiles-1.1.0/grass.png',
+            water: 'seamless-64px-rpg-tiles-1.1.0/water.png',
+            sand: 'seamless-64px-rpg-tiles-1.1.0/sand.png',
+            stone: 'seamless-64px-rpg-tiles-1.1.0/stone tile.png'
+        };
+        
+        let loadedTiles = 0;
+        const totalTiles = Object.keys(tileFiles).length;
+        
+        Object.entries(tileFiles).forEach(([tileType, filename]) => {
+            const img = new Image();
+            img.onload = () => {
+                console.log(`🏞️ Terrain tile loaded: ${tileType}`);
+                loadedTiles++;
+                if (loadedTiles === totalTiles) {
+                    this.terrainTiles.loaded = true;
+                    console.log('🌍 All terrain tiles loaded!');
+                }
+            };
+            img.onerror = () => console.error(`❌ Failed to load terrain tile: ${filename}`);
+            img.src = filename;
+            this.terrainTiles[tileType] = img;
+        });
+    }
+    
+    // Zeichne Vegetation (Bäume und Büsche)
+    drawVegetation() {
+        if (!this.vegetation.loaded || !this.worldVegetation) {
+            return;
+        }
+        
+        // Zeichne nur sichtbare Vegetation (performance optimization)
+        const cameraX = -this.camera.offsetX / this.camera.zoom;
+        const cameraY = -this.camera.offsetY / this.camera.zoom;
+        const viewWidth = this.canvas.width / this.camera.zoom;
+        const viewHeight = this.canvas.height / this.camera.zoom;
+        
+        this.worldVegetation.forEach(vegetation => {
+            // Culling - nur zeichnen wenn im sichtbaren Bereich
+            if (vegetation.x < cameraX - 100 || vegetation.x > cameraX + viewWidth + 100 ||
+                vegetation.y < cameraY - 100 || vegetation.y > cameraY + viewHeight + 100) {
+                return;
+            }
+            
+            const sprite = vegetation.type === 'tree' ? 
+                this.vegetation.trees[vegetation.spriteIndex] : 
+                this.vegetation.bushes[vegetation.spriteIndex];
+                
+            if (!sprite || !sprite.complete) return;
+            
+            const originalWidth = sprite.width;
+            const originalHeight = sprite.height;
+            const scale = vegetation.scale;
+            const destWidth = originalWidth * scale;
+            const destHeight = originalHeight * scale;
+            
+            // Schatten für Bäume
+            if (vegetation.type === 'tree') {
+                this.ctx.save();
+                this.ctx.globalAlpha = 0.3;
+                this.ctx.fillStyle = '#00000040';
+                this.ctx.beginPath();
+                this.ctx.ellipse(
+                    vegetation.x + 5, 
+                    vegetation.y + destHeight * 0.8, 
+                    destWidth * 0.3, 
+                    destHeight * 0.1, 
+                    0, 0, Math.PI * 2
+                );
+                this.ctx.fill();
+                this.ctx.restore();
+            }
+            
+            // Zeichne Vegetation-Sprite
+            this.ctx.drawImage(
+                sprite,
+                vegetation.x - destWidth / 2,
+                vegetation.y - destHeight / 2,
+                destWidth,
+                destHeight
+            );
+            
+            // Ressourcen-Indikator für erntbare Büsche
+            if (vegetation.type === 'bush' && vegetation.harvestable && vegetation.resources > 0) {
+                this.ctx.save();
+                this.ctx.fillStyle = '#FF6B6B';
+                this.ctx.font = '12px Arial';
+                this.ctx.textAlign = 'center';
+                this.ctx.globalAlpha = 0.8;
+                this.ctx.fillText('🍓', vegetation.x, vegetation.y - destHeight / 2 - 10);
+                this.ctx.restore();
+            }
+        });
+    }
+    
+    // Fluss mit Wasser-Tiles zeichnen
+    drawRiverWithTiles(river) {
+        if (!this.terrainTiles.loaded || !this.terrainTiles.water) {
+            // Fallback: alter Fluss
+            this.drawOldRiver(river);
+            return;
+        }
+        
+        const tileSize = 64;
+        const riverWidth = river.width || 60;
+        
+        // Für jeden Punkt im Fluss
+        for (let i = 0; i < river.points.length - 1; i++) {
+            const currentPoint = river.points[i];
+            const nextPoint = river.points[i + 1];
+            
+            // Berechne Richtung zwischen Punkten
+            const dx = nextPoint.x - currentPoint.x;
+            const dy = nextPoint.y - currentPoint.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            const steps = Math.ceil(distance / (tileSize * 0.5)); // Überlappung für nahtlosen Fluss
+            
+            // Zeichne Wasser-Tiles entlang der Linie
+            for (let step = 0; step <= steps; step++) {
+                const t = step / steps;
+                const x = currentPoint.x + dx * t;
+                const y = currentPoint.y + dy * t;
+                
+                // Berechne senkrechte Richtung für Flussbreite
+                const perpX = -dy / distance;
+                const perpY = dx / distance;
+                
+                // Zeichne Wasser-Tiles quer zur Flussrichtung
+                const tilesAcross = Math.ceil(riverWidth / tileSize);
+                for (let j = -tilesAcross; j <= tilesAcross; j++) {
+                    const tileX = x + perpX * j * tileSize;
+                    const tileY = y + perpY * j * tileSize;
+                    
+                    // Nur zeichnen wenn innerhalb der Flussbreite
+                    const distanceFromCenter = Math.abs(j * tileSize);
+                    if (distanceFromCenter <= riverWidth / 2) {
+                        this.ctx.drawImage(
+                            this.terrainTiles.water,
+                            tileX - tileSize / 2,
+                            tileY - tileSize / 2,
+                            tileSize,
+                            tileSize
+                        );
+                    }
+                }
+            }
+        }
+    }
+    
+    // Fallback für alten Fluss
+    drawOldRiver(river) {
+        this.ctx.strokeStyle = '#4A90E2';
+        this.ctx.lineWidth = river.width || 40;
+        this.ctx.lineCap = 'round';
+        this.ctx.lineJoin = 'round';
+        
+        this.ctx.beginPath();
+        river.points.forEach((point, index) => {
+            if (index === 0) {
+                this.ctx.moveTo(point.x, point.y);
+            } else {
+                this.ctx.lineTo(point.x, point.y);
+            }
+        });
+        this.ctx.stroke();
+    }
+    
+    // Sprite-Zuordnung basierend auf Geschlecht
+    assignSpritesByGender() {
+        console.log('👫 Assigning sprites based on character gender...');
+        
+        // Get available sprite indices by gender
+        const maleSprites = [];
+        const femaleSprites = [];
+        
+        this.sprites.characterGenders.forEach((gender, index) => {
+            if (gender === 'male') {
+                maleSprites.push(index);
+            } else {
+                femaleSprites.push(index);
+            }
+        });
+        
+        console.log(`Available sprites - Males: [${maleSprites.join(', ')}], Females: [${femaleSprites.join(', ')}]`);
+        
+        // Assign sprites to characters mit besserer Verteilung
+        let maleCounter = 0;
+        let femaleCounter = 0;
+        
+        this.characters.forEach((character, charIndex) => {
+            let spriteIndex;
+            
+            if (character.gender === 'male') {
+                // Männer bekommen char1 (Index 0)
+                spriteIndex = maleSprites[maleCounter % maleSprites.length];
+                maleCounter++;
+            } else {
+                // Frauen bekommen rotierend char2, char3, char4 (Indices 1, 2, 3)
+                spriteIndex = femaleSprites[femaleCounter % femaleSprites.length];
+                femaleCounter++;
+            }
+            
+            character.spriteIndex = spriteIndex;
+            console.log(`Character ${charIndex + 1} (${character.name}) - ${character.gender} -> sprite ${spriteIndex} (${spriteIndex === 0 ? 'char1' : 'char' + (spriteIndex + 1)})`);
+        });
+    }
+    
+    // Einzelne Charakter-Sprites zeichnen
+    drawCharacterSprite(x, y, spriteIndex, scale = 1) {
+        // Debug nur beim ersten Aufruf
+        if (!this._spriteDebugLogged) {
+            console.log(`🔍 SPRITE DEBUG: loaded=${this.sprites.loaded}, characters.length=${this.sprites.characters.length}`);
+            this._spriteDebugLogged = true;
+        }
+        
+        // Prüfe ob Sprites geladen sind
+        if (!this.sprites.loaded || !this.sprites.characters.length) {
+            return false;
+        }
+        
+        // Verwende spriteIndex um zwischen den 4 Charakteren zu wählen
+        const characterIndex = spriteIndex % 4; // 0-3 für char1-char4
+        const characterImage = this.sprites.characters[characterIndex];
+        
+        if (!characterImage || !characterImage.complete) {
+            return false;
+        }
+        
+        // Originale Sprite-Größe beibehalten - keine Verzerrung!
+        const originalWidth = characterImage.width;
+        const originalHeight = characterImage.height;
+        const destWidth = originalWidth * scale;
+        const destHeight = originalHeight * scale;
+        
+        try {
+            this.ctx.drawImage(
+                characterImage,
+                0, 0, originalWidth, originalHeight,  // Ganzes Bild verwenden
+                x - destWidth/2, y - destHeight/2, destWidth, destHeight  // Proportionale Größe
+            );
+            
+            // Debug: Roter Rahmen um Sprites (proportional)
+            if (this._showSpriteDebug) {
+                this.ctx.strokeStyle = 'red';
+                this.ctx.lineWidth = 2;
+                this.ctx.strokeRect(x - destWidth/2, y - destHeight/2, destWidth, destHeight);
+            }
+            
+            // Debug beim ersten erfolgreichen Sprite
+            if (!this._firstSpriteDrawn) {
+                console.log(`🎨 Erstes Character Sprite gezeichnet! char${characterIndex + 1} (${originalWidth}x${originalHeight})`);
+                console.log(`📍 Position: ${x},${y}, Größe: ${destWidth}x${destHeight} (proportional!)`);
+                this._firstSpriteDrawn = true;
+                this._showSpriteDebug = true;
+                this.sprites.everWorked = true;
+                console.log(`✅ CHARACTER SPRITES AKTIV - Keine Verzerrung mehr!`);
+            }
+            
+            return true;
+        } catch (e) {
+            console.error('❌ Fehler beim Zeichnen des Character Sprites:', e);
+            return false;
+        }
     }
     
     // ==== Dynamisches Gesprächssystem ====
@@ -370,12 +793,162 @@ class VillageAI {
         this.createCharacters();
         console.log('🤝 Initializing social systems...');
         this.initSocialSystem();
+        
+        console.log('🧠 Initializing Advanced AI Systems...');
+        this.initAdvancedAI();
+        
         console.log('✨ Initializing particles...');
         this.initParticles();
         console.log('🖱️ Setting up event listeners...');
         this.setupEventListeners();
         this.setupPlayerBuildingControls();
         console.log('✅ Game initialization complete!');
+    }
+    
+    // 🧠 Advanced AI System Initialization
+    initAdvancedAI() {
+        // Kollektive Intelligenz aktivieren
+        if (typeof CollectiveIntelligence !== 'undefined') {
+            try {
+                this.collectiveIntelligence = new CollectiveIntelligence();
+                this.collectiveIntelligence.enable();
+                console.log('🌐 Collective Intelligence enabled');
+            } catch (error) {
+                console.warn('❌ Failed to initialize Collective Intelligence:', error);
+            }
+        }
+        
+        // AI Dashboard aktivieren
+        if (typeof AIMonitoringDashboard !== 'undefined') {
+            try {
+                this.aiDashboard = new AIMonitoringDashboard();
+                console.log('📊 AI Dashboard initialized');
+                
+                // Dashboard per Tastenkombination togglen (Strg+Shift+A)
+                document.addEventListener('keydown', (e) => {
+                    if (e.ctrlKey && e.shiftKey && e.key === 'A') {
+                        this.aiDashboard.toggle();
+                    }
+                });
+            } catch (error) {
+                console.warn('❌ Failed to initialize AI Dashboard:', error);
+            }
+        }
+        
+        // Natural Conversation System aktivieren
+        if (typeof NaturalConversationSystem !== 'undefined') {
+            try {
+                this.conversationSystem = new NaturalConversationSystem();
+                console.log('💬 Natural Conversation System enabled');
+            } catch (error) {
+                console.warn('❌ Failed to initialize Conversation System:', error);
+            }
+        }
+        
+        console.log('🎯 Advanced AI integration complete!');
+    }
+    
+    // 🧠 Update Character AI Brain (RE-ENABLED WITH FIXES)
+    async updateCharacterAI(character) {
+        // Skip if no AI brain or rate limit to prevent spam
+        if (!character.aiBrain) return;
+        
+        // Rate limiting - only update AI every 200ms per character
+        const now = Date.now();
+        character._lastAIUpdate = character._lastAIUpdate || 0;
+        if ((now - character._lastAIUpdate) < 200) {
+            return; // Skip this update cycle
+        }
+        character._lastAIUpdate = now;
+        
+        if (!character.aiBrain) return;
+        
+        // Umgebungsdaten für AI sammeln
+        const environmentData = {
+            hunger: character.hunger,
+            energy: character.energy,
+            thirst: character.thirst || 50,
+            warmth: character.warmth || 70,
+            nearbyCharacters: this.getNearbyCharacters(character, 100).length,
+            nearbyResources: this.getNearbyResources(character, 150).length,
+            currentAction: character.currentAction,
+            x: character.x,
+            y: character.y,
+            gameTime: this.gameTime
+        };
+        
+        // AI-Entscheidung treffen
+        try {
+            // Debug: Check if makeDecision method exists
+            if (!character.aiBrain.makeDecision || typeof character.aiBrain.makeDecision !== 'function') {
+                console.warn(`❌ ${character.name} aiBrain missing methods - fixing...`);
+                
+                // FIX: Add missing methods directly to the existing instance
+                character.aiBrain.makeDecision = async function(environmentData, availableActions) {
+                    // Simple fallback decision logic
+                    if (environmentData.hunger > 70) return { action: 'gather_food', confidence: 0.6 };
+                    if (environmentData.energy < 30) return { action: 'rest', confidence: 0.6 };
+                    if (Math.random() < 0.3) return { action: 'explore', confidence: 0.4 };
+                    return { action: 'gather_food', confidence: 0.5 };
+                };
+                
+                character.aiBrain.learn = function(action, result) {
+                    // Simple learning
+                    if (result === 'success') {
+                        this.learningStats.successfulActions++;
+                    } else {
+                        this.learningStats.failedActions++;
+                    }
+                    this.learningStats.decisionsKnnen++;
+                };
+                
+                console.log(`✅ ${character.name} aiBrain methods fixed!`);
+            }
+            
+            const aiDecision = await character.aiBrain.makeDecision(environmentData, this.getAvailableActions());
+            
+            if (aiDecision && aiDecision.action !== character.currentAction) {
+                console.log(`🧠 ${character.name} AI suggests: ${aiDecision.action} (confidence: ${aiDecision.confidence})`);
+                
+                // AI-Entscheidung anwenden (mit Fallback auf bisheriges System)
+                if (aiDecision.confidence > 0.7) {
+                    this.executeAIAction(character, aiDecision.action);
+                }
+            }
+            
+            // Lernen aus Aktionsergebnis
+            if (character.lastAction && character.lastActionResult) {
+                character.aiBrain.learn(character.lastAction, character.lastActionResult);
+            }
+            
+        } catch (error) {
+            console.warn(`AI processing error for ${character.name}:`, error);
+        }
+    }
+    
+    // Verfügbare Aktionen für AI-Entscheidung
+    getAvailableActions() {
+        return ['idle', 'gather_food', 'collect_water', 'gather_wood', 'build', 'socialize', 'rest', 'explore'];
+    }
+    
+    // AI-Aktion ausführen
+    executeAIAction(character, action) {
+        // Validierung der AI-Aktion
+        const validActions = this.getAvailableActions();
+        if (!validActions.includes(action)) {
+            console.warn(`Invalid AI action: ${action} for ${character.name}`);
+            return;
+        }
+        
+        // Aktion über bestehendes System starten
+        this.startAction(character, action);
+        
+        // Aktion für AI-Lernen merken
+        character.lastAction = {
+            action: action,
+            environment: { hunger: character.hunger, energy: character.energy },
+            timestamp: Date.now()
+        };
     }
 
     setupPlayerBuildingControls(){
@@ -1224,10 +1797,15 @@ class VillageAI {
                 learningEnabled: true
             };
             
-            // Erstelle KI-Gehirn für jeden Charakter
+            // 🧠 Integriere Advanced AI Brain System
             if (typeof AIBrain !== 'undefined') {
-                character.aiBrain = new AIBrain(personality);
-                console.log(`🧠 AI Brain created for ${personality.name}`);
+                try {
+                    character.aiBrain = new AIBrain(personality);
+                    console.log(`🧠 AI Brain initialized for ${character.name}`);
+                } catch (error) {
+                    console.warn(`❌ Failed to initialize AI Brain for ${character.name}:`, error);
+                    character.aiBrain = null;
+                }
             } else {
                 console.warn(`⚠️ AIBrain not loaded yet for ${personality.name}`);
                 character.aiBrain = null;
@@ -1235,6 +1813,9 @@ class VillageAI {
             // Ziele / Goal-System Grundstruktur
             character.goals = []; // {id, type, target, priority, created, status}
             character.currentGoal = null;
+            
+            // Sprite Index zuweisen (0-24 für die 25 verfügbaren Sprites)
+            character.spriteIndex = index % 25;
             
             this.characters.push(character);
             // Basierend auf Rolle einfache Aktions-Präferenzen setzen
@@ -1319,56 +1900,9 @@ class VillageAI {
         // Schatten für Terrain-Elemente
         this.drawTerrainShadows();
         
-        // Fluss mit verbesserter Darstellung
+        // Fluss mit Wasser-Tiles
         this.terrain.filter(t => t.type === 'river').forEach(river => {
-            // Fluss aus Vogelperspektive - wie ein blaues Band von oben
-            
-            // Fluss-Bett (dunkler Rand)
-            this.ctx.strokeStyle = '#1B4F72';
-            this.ctx.lineWidth = river.width + 4;
-            this.ctx.lineCap = 'round';
-            this.ctx.lineJoin = 'round';
-            
-            this.ctx.beginPath();
-            river.points.forEach((point, index) => {
-                if (index === 0) {
-                    this.ctx.moveTo(point.x, point.y);
-                } else {
-                    this.ctx.lineTo(point.x, point.y);
-                }
-            });
-            this.ctx.stroke();
-            
-            // Hauptwasser (helleres Blau)
-            this.ctx.strokeStyle = '#4A90E2';
-            this.ctx.lineWidth = river.width;
-            
-            this.ctx.beginPath();
-            river.points.forEach((point, index) => {
-                if (index === 0) {
-                    this.ctx.moveTo(point.x, point.y);
-                } else {
-                    this.ctx.lineTo(point.x, point.y);
-                }
-            });
-            this.ctx.stroke();
-            
-            // Wasser-Mittellinie (noch heller für Tiefe)
-            this.ctx.strokeStyle = '#87CEEB';
-            this.ctx.lineWidth = river.width * 0.4;
-            
-            this.ctx.beginPath();
-            river.points.forEach((point, index) => {
-                if (index === 0) {
-                    this.ctx.moveTo(point.x, point.y);
-                } else {
-                    this.ctx.lineTo(point.x, point.y);
-                }
-            });
-            this.ctx.stroke();
-            
-            // Kleine Wasser-Reflexe
-            this.drawWaterEffects(river);
+            this.drawRiverWithTiles(river);
         });
 
         // Brücke zeichnen (nach dem Fluss, vor Bergen)
@@ -1908,19 +2442,46 @@ class VillageAI {
     }
     
     drawBackground() {
-        // Vogelperspektive - alles von oben betrachtet wie eine Landkarte
-        // Kompletter Wiesen-Hintergrund ohne Himmel
-        const grassGradient = this.ctx.createRadialGradient(
-            this.canvas.width * 0.5, this.canvas.height * 0.3, 0,
-            this.canvas.width * 0.5, this.canvas.height * 0.3, this.canvas.width * 0.8
-        );
-        grassGradient.addColorStop(0, '#98FB98');  // Helles Gras in der Mitte
-        grassGradient.addColorStop(0.3, '#90EE90'); // Mittleres Grün
-        grassGradient.addColorStop(0.7, '#32CD32'); // Dunkleres Grün 
-        grassGradient.addColorStop(1, '#228B22');   // Dunkelstes Grün am Rand
-        
-        this.ctx.fillStyle = grassGradient;
-        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        if (this.terrainTiles.loaded && this.terrainTiles.grass) {
+            // Tiled Grass Background mit nahtlosen 64px Tiles
+            const tileSize = 64;
+            const cameraX = -this.camera.offsetX / this.camera.zoom;
+            const cameraY = -this.camera.offsetY / this.camera.zoom;
+            const viewWidth = this.canvas.width / this.camera.zoom;
+            const viewHeight = this.canvas.height / this.camera.zoom;
+            
+            // Startposition für Tiles berechnen (nahtlos)
+            const startTileX = Math.floor(cameraX / tileSize);
+            const startTileY = Math.floor(cameraY / tileSize);
+            const tilesX = Math.ceil(viewWidth / tileSize) + 2;
+            const tilesY = Math.ceil(viewHeight / tileSize) + 2;
+            
+            // Zeichne Gras-Tiles
+            for (let tx = 0; tx < tilesX; tx++) {
+                for (let ty = 0; ty < tilesY; ty++) {
+                    const x = (startTileX + tx) * tileSize;
+                    const y = (startTileY + ty) * tileSize;
+                    
+                    this.ctx.drawImage(
+                        this.terrainTiles.grass,
+                        x, y, tileSize, tileSize
+                    );
+                }
+            }
+        } else {
+            // Fallback: Einfacher Gras-Gradient
+            const grassGradient = this.ctx.createRadialGradient(
+                this.canvas.width * 0.5, this.canvas.height * 0.3, 0,
+                this.canvas.width * 0.5, this.canvas.height * 0.3, this.canvas.width * 0.8
+            );
+            grassGradient.addColorStop(0, '#98FB98');
+            grassGradient.addColorStop(0.3, '#90EE90');
+            grassGradient.addColorStop(0.7, '#32CD32');
+            grassGradient.addColorStop(1, '#228B22');
+            
+            this.ctx.fillStyle = grassGradient;
+            this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        }
         
         // Zusätzliche Gras-Texturen für mehr Realismus von oben
         for (let i = 0; i < 50; i++) {
@@ -2027,64 +2588,43 @@ class VillageAI {
             this.ctx.ellipse(character.x + 1, character.y + 15, 10, 4, 0, 0, Math.PI * 2);
             this.ctx.fill();
             
-            // Körper mit Gradient und Schatten
-            this.ctx.shadowColor = 'rgba(0,0,0,0.4)';
-            this.ctx.shadowBlur = 6;
-            this.ctx.shadowOffsetX = 2;
-            this.ctx.shadowOffsetY = 2;
-            
-            const bodyGradient = this.ctx.createRadialGradient(
-                character.x - 4, character.y - 4, 0,
-                character.x, character.y, 12
+            // Versuche Sprite zu zeichnen - ersetzt den kompletten Charakter (Körper + Kopf)
+            const spriteDrawn = this.drawCharacterSprite(
+                character.x, 
+                character.y - 8,  // Sprite höher positioniert
+                character.spriteIndex || 0, 
+                character.age < 16 ? 0.75 : 1.0  // KLEINERE Sprites! Babies 0.75x, Erwachsene 1.0x
             );
-            const color = character.color;
-            bodyGradient.addColorStop(0, this.lightenColor(color, 20));
-            bodyGradient.addColorStop(0.7, color);
-            bodyGradient.addColorStop(1, this.darkenColor(color, 20));
             
-            this.ctx.fillStyle = bodyGradient;
-            this.ctx.beginPath();
+            // Debug: Warum werden Köpfe gezeichnet?
+            if (!this.sprites.loaded) {
+                if (!this._fallbackReasonLogged) {
+                    console.log(`🐛 WARUM FALLBACK? sprites.loaded=${this.sprites.loaded}, characters.length=${this.sprites.characters.length}`);
+                    this._fallbackReasonLogged = true;
+                }
+            } else {
+                // Sprites sind geladen - einmalig Canvas clearen für alte Köpfe
+                if (!this._canvasCleared && this.sprites.loaded) {
+                    console.log(`🧹 CANVAS CLEARING - Entferne alte Kreis-Köpfe vom ersten Frame`);
+                    this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                    this._canvasCleared = true;
+                }
+            }
             
-            // Smaller size for babies
-            const size = character.age < 16 ? 8 : 12;
-            this.ctx.arc(character.x, character.y, size, 0, Math.PI * 2);
-            this.ctx.fill();
+            // NUR SPRITES - keine alten Kreise mehr!
+            if (!this.sprites.loaded) {
+                console.log(`⏳ Sprites nicht geladen - ${character.name} wird nicht angezeigt`);
+                return; // Zeige GAR NICHTS bis Sprites geladen sind
+            }
             
-            // Pregnancy indicator
-            if (character.pregnant) {
+            // Pregnancy indicator für Sprites (oberhalb)
+            if (spriteDrawn && character.pregnant) {
                 this.ctx.shadowColor = 'transparent';
                 this.ctx.fillStyle = '#ffb3ba';
                 this.ctx.beginPath();
-                this.ctx.arc(character.x, character.y + 8, 4, 0, Math.PI * 2);
+                this.ctx.arc(character.x, character.y + 20, 6, 0, Math.PI * 2);
                 this.ctx.fill();
             }
-            
-            // Körper-Highlight
-            this.ctx.fillStyle = 'rgba(255,255,255,0.3)';
-            this.ctx.beginPath();
-            this.ctx.arc(character.x - 3, character.y - 3, 4, 0, Math.PI * 2);
-            this.ctx.fill();
-
-            // Kopf mit Gradient
-            const headGradient = this.ctx.createRadialGradient(
-                character.x - 2, character.y - 10, 0,
-                character.x, character.y - 8, 8
-            );
-            headGradient.addColorStop(0, '#FFEFD5');
-            headGradient.addColorStop(0.7, '#FFDBAC');
-            headGradient.addColorStop(1, '#DEB887');
-            
-            this.ctx.fillStyle = headGradient;
-            this.ctx.beginPath();
-            this.ctx.arc(character.x, character.y - 8, 8, 0, Math.PI * 2);
-            this.ctx.fill();
-            
-            // Gesicht (Augen)
-            this.ctx.fillStyle = '#333';
-            this.ctx.beginPath();
-            this.ctx.arc(character.x - 2, character.y - 10, 1, 0, Math.PI * 2);
-            this.ctx.arc(character.x + 2, character.y - 10, 1, 0, Math.PI * 2);
-            this.ctx.fill();
             
             // Schatten zurücksetzen
             this.ctx.shadowColor = 'transparent';
@@ -2098,7 +2638,7 @@ class VillageAI {
             this.ctx.fillStyle = '#333';
             this.ctx.font = 'bold 11px Arial';
             this.ctx.textAlign = 'center';
-            this.ctx.fillText(character.name.split(' ')[0], character.x, character.y - 25);
+            this.ctx.fillText(character.name.split(' ')[0], character.x, character.y - 60);  // Viel höher über den Charakteren
             this.ctx.shadowColor = 'transparent';
             this.ctx.shadowBlur = 0;
 
@@ -2267,7 +2807,7 @@ class VillageAI {
         this.ctx.shadowColor = 'transparent';
         this.ctx.beginPath();
         this.ctx.moveTo(character.x - 8, bubbleY + bubbleHeight);
-        this.ctx.lineTo(character.x, character.y - 25);
+        this.ctx.lineTo(character.x, character.y - 60);  // Angepasst für höhere Namen
         this.ctx.lineTo(character.x + 8, bubbleY + bubbleHeight);
         this.ctx.closePath();
         this.ctx.fill();
@@ -2279,7 +2819,7 @@ class VillageAI {
             this.ctx.fillStyle = borderColor;
             for (let i = 0; i < 3; i++) {
                 const circleX = character.x - 15 + i * 8;
-                const circleY = character.y - 35 + i * 3;
+                const circleY = character.y - 70 + i * 3;  // Viel höher positioniert
                 this.ctx.beginPath();
                 this.ctx.arc(circleX, circleY, 3 - i, 0, Math.PI * 2);
                 this.ctx.fill();
@@ -2507,7 +3047,7 @@ class VillageAI {
     drawCharacterStatus(character) {
         const barWidth = 20;
         const barHeight = 3;
-        const barY = character.y - 35;
+        const barY = character.y - 70;  // Viel höher über den Charakteren!
         
         // Energie-Balken
         this.ctx.fillStyle = 'rgba(0,0,0,0.3)';
@@ -2604,6 +3144,15 @@ class VillageAI {
         
         // Verwende for...of für async/await Unterstützung
         for (const character of this.characters) {
+            // 🧠 AI-Brain Update (falls vorhanden)
+            if (character.aiBrain) {
+                try {
+                    await this.updateCharacterAI(character);
+                } catch (error) {
+                    console.warn(`❌ AI Brain update failed for ${character.name}:`, error);
+                }
+            }
+            
             // Feuer-Wärmeeinfluss vor Entscheidungen anwenden (passive Erwärmung)
             if (this.fires && this.fires.length) {
                 let warmthGain = 0;
@@ -5339,6 +5888,7 @@ class VillageAI {
             color: this.mixColors(mother.color, father.color),
             traits: babyTraits,
             preferredAction: Math.random() < 0.5 ? mother.preferredAction : father.preferredAction,
+            spriteIndex: Math.floor(Math.random() * 25), // Zufälliger Sprite für Baby
             x: mother.x + (Math.random() - 0.5) * 20,
             y: mother.y + (Math.random() - 0.5) * 20,
             targetX: null,
@@ -5717,6 +6267,7 @@ class VillageAI {
     this.ctx.setTransform(this.camera.zoom,0,0,this.camera.zoom, this.camera.offsetX||0, this.camera.offsetY||0);
     this.ctx.clearRect(-this.camera.offsetX/this.camera.zoom, -this.camera.offsetY/this.camera.zoom, this.canvas.width/this.camera.zoom, this.canvas.height/this.camera.zoom);
     this.drawTerrain();
+    this.drawVegetation();  // Vegetation zwischen Terrain und Charakteren
     this.drawBuildPreview?.();
     // Lagerfeuer unter Charakteren aber über Terrain
     this.drawFires?.();
@@ -6067,5 +6618,20 @@ class VillageAI {
             }
         }
         requestAnimationFrame(()=>this.gameLoop());
+    }
+
+    // 🔍 Helper Methods
+    getNearbyCharacters(character, radius = 100) {
+        return this.characters.filter(c => 
+            c !== character && 
+            Math.sqrt(Math.pow(c.x - character.x, 2) + Math.pow(c.y - character.y, 2)) < radius
+        );
+    }
+
+    getNearbyResources(character, radius = 150) {
+        return this.terrain.filter(t => 
+            (t.type === 'water_source' || t.type === 'food_source' || t.type === 'resource') &&
+            Math.sqrt(Math.pow(t.x - character.x, 2) + Math.pow(t.y - character.y, 2)) < radius
+        );
     }
 }
