@@ -27,28 +27,7 @@ class AIConfiguration {
     }
 
     setupConfigPanel() {
-        // Erstelle Konfigurations-Button
-        this.configButton = document.createElement('button');
-        this.configButton.innerHTML = '⚙️ AI Config';
-        this.configButton.style.cssText = `
-            position: fixed;
-            top: 140px;
-            right: 20px;
-            background: rgba(128, 0, 128, 0.9);
-            border: none;
-            color: white;
-            padding: 10px 15px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 12px;
-            z-index: 9999;
-            backdrop-filter: blur(5px);
-            transition: all 0.3s ease;
-        `;
-        
-        this.configButton.addEventListener('click', () => this.showConfigPanel());
-        document.body.appendChild(this.configButton);
-        
+        // Steuerung erfolgt jetzt über Bottom Nav (Button mit data-panel="aiConfigPanel")
         this.createConfigPanel();
     }
 
