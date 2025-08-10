@@ -333,17 +333,41 @@ class NaturalConversationSystem {
     }
 
     displayConversation(speaker, listener, message) {
-        // Zeige Sprechblase über dem Charakter
-        speaker.thoughts = [message];
-        speaker.conversationBubble = {
-            message: message,
-            timestamp: Date.now(),
-            target: listener.name
-        };
-        
-        // Update UI falls vorhanden
-        if (window.gameInstance) {
-            window.gameInstance.updateCharacterDisplay();
+        // Versuche das zentrale SpeechBubble-System des Spiels zu verwenden
+        try {
+            if (window.gameInstance?.showSpeechBubble) {
+                window.gameInstance.showSpeechBubble(speaker, {
+                    text: message,
+                    type: 'dialog',
+                    duration: 4000
+                });
+            } else {
+                // Fallback auf einfaches Gedanken-System
+                speaker.thoughts = [message];
+                speaker.conversationBubble = {
+                    message: message,
+                    timestamp: Date.now(),
+                    target: listener?.name
+                };
+            }
+            // Globale Gesprächs-Log aktualisieren (falls vorhanden)
+            if (window.gameInstance) {
+                const gi = window.gameInstance;
+                if (Array.isArray(gi.conversationLog)) {
+                    gi.conversationLog.push({
+                        time: new Date().toLocaleTimeString(),
+                        speaker: speaker.name,
+                        partner: listener?.name || '—',
+                        topic: 'natural',
+                        text: message
+                    });
+                    if (gi.conversationLog.length > 300) gi.conversationLog.shift();
+                }
+                gi.updateCharacterDisplay?.();
+            }
+        } catch (e) {
+            console.warn('Conversation display failed:', e);
+            speaker.thoughts = [message];
         }
     }
 

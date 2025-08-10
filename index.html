@@ -101,7 +101,7 @@
         /* Spieler-Charakter Chat */
         #charChat {
             position: fixed;
-            bottom: 14px;
+            bottom: 70px; /* Platz über BottomNav, wird dynamisch in JS überschrieben */
             right: 16px;
             width: 320px;
             max-height: 440px;
@@ -109,15 +109,16 @@
             border: 1px solid #30363d;
             border-radius: 12px;
             box-shadow: 0 8px 24px rgba(0,0,0,0.55);
-            display: none;
-            z-index: 140;
+            z-index: 6100; /* über BottomNav (6000) */
             font-size: 12px;
             color:#e2e8f0;
             overflow:hidden;
             display:flex;
             flex-direction:column;
+            transition: opacity .35s ease, transform .35s ease;
         }
-        #charChat.active { display:flex; }
+        #charChat.panel-hidden { opacity:0; transform: translateY(20px); }
+        #charChat.panel-visible { opacity:1; transform: translateY(0); }
         #charChatHeader { background:#272e35; padding:8px 10px; font-weight:600; display:flex; align-items:center; justify-content:space-between; }
         #charChatHeader button { background:none; border:none; color:#aaa; font-size:16px; cursor:pointer; }
         #charChatHeader button:hover { color:#fff; }
@@ -390,13 +391,56 @@
             animation: pulse 2s infinite;
             pointer-events: none;
         }
+
+        /* Bottom Navigation Bar */
+        #bottomNav {
+            position: fixed;
+            left: 0;
+            bottom: 0;
+            width: 100%;
+            display: flex;
+            gap: 10px;
+            padding: 8px 14px 10px;
+            background: linear-gradient(180deg, rgba(20,24,28,0.85), rgba(12,14,16,0.92));
+            border-top: 1px solid rgba(255,255,255,0.08);
+            box-shadow: 0 -4px 14px rgba(0,0,0,0.45);
+            backdrop-filter: blur(10px);
+            z-index: 6000;
+            font-size: 12px;
+        }
+        #bottomNav button {
+            background: linear-gradient(135deg,#2d3842,#1f262c);
+            color: #d7e2ea;
+            border: 1px solid #3a4650;
+            padding: 6px 14px;
+            border-radius: 8px;
+            font-weight:600;
+            cursor:pointer;
+            letter-spacing:.3px;
+            display:flex;
+            align-items:center;
+            gap:6px;
+            position:relative;
+            transition:background .25s, transform .15s;
+        }
+        #bottomNav button:hover { background: linear-gradient(135deg,#3a4752,#293239); }
+        #bottomNav button.active { background: linear-gradient(135deg,#4a90e2,#357abd); border-color:#2e6fae; color:#fff; }
+        #bottomNav button .indicator { width:6px; height:6px; background:#ffcf4d; border-radius:50%; display:none; }
+        #bottomNav button.unread .indicator { display:inline-block; box-shadow:0 0 6px #ffcf4d; }
+
+        .panel-hidden { opacity:0; pointer-events:none; transition: opacity .35s ease; }
+        .panel-visible { opacity:1; pointer-events:auto; }
+        /* Optional slide-up variant for future use */
+        .slide-container { position:fixed; left:0; bottom:48px; width:100%; display:flex; justify-content:center; z-index:5500; pointer-events:none; }
+        .slide-panel { pointer-events:auto; transform: translateY(120%); transition: transform .4s ease; }
+        .slide-panel.active { transform: translateY(0); }
     </style>
 </head>
 <body>
     <div id="gameContainer">
         <canvas id="gameCanvas"></canvas>
         <!-- Chat UI -->
-        <div id="charChat">
+    <div id="charChat" class="panel-hidden">
             <div id="charChatHeader">
                 <span id="charChatTitle">Chat</span>
                 <button id="charChatClose" title="Schließen">×</button>
@@ -421,13 +465,13 @@
             <p><strong>🐾 Tiere:</strong> <span id="animalCount">0</span></p>
         </div>
         
-        <div id="characterInfo">
+    <div id="characterInfo" class="panel-visible">
             <button id="charPanelToggle" title="Ein/Ausklappen">−</button>
             <h3>👥 Intelligente Charaktere</h3>
             <div id="characterList"></div>
         </div>
         <!-- Spieler Bau UI -->
-        <div id="buildControls" style="position:absolute; top:20px; left:260px; z-index:120; background:rgba(255,255,255,0.85); padding:10px 14px; border-radius:12px; font-size:12px; color:#222; box-shadow:0 4px 14px rgba(0,0,0,0.18);">
+    <div id="buildControls" class="panel-visible" style="position:absolute; top:20px; left:260px; z-index:120; background:rgba(255,255,255,0.85); padding:10px 14px; border-radius:12px; font-size:12px; color:#222; box-shadow:0 4px 14px rgba(0,0,0,0.18);">
             <button id="placeHouseBtn" style="background:#4caf50; border:none; color:#fff; padding:6px 10px; border-radius:6px; cursor:pointer; font-weight:600;">Haus platzieren (H)</button>
             <button id="placeHutBtn" style="background:#8d6e63; border:none; color:#fff; padding:6px 10px; border-radius:6px; cursor:pointer; font-weight:600;">Hütte platzieren (U)</button>
             <button id="placeWarehouseBtn" style="background:#ff9800; border:none; color:#fff; padding:6px 10px; border-radius:6px; cursor:pointer; font-weight:600;">Lager bauen (L)</button>
@@ -437,10 +481,20 @@
             </div>
             <div id="buildStatus" style="margin-top:6px; font-size:11px; color:#444; min-height:14px;"></div>
         </div>
+        <!-- Bottom Navigation -->
+        <div id="bottomNav">
+            <button data-panel="ui" title="Spiel Statistiken">📊 Stats</button>
+            <button data-panel="characterInfo" title="Charaktere & Details">👥 Charaktere</button>
+            <button data-panel="buildControls" title="Bauen / Platzieren">🏗️ Bauen</button>
+            <button data-panel="aiDashboard" title="AI Dashboard">🧠 AI</button>
+            <button data-panel="aiConfigPanel" title="AI Konfiguration">⚙️ AI Config</button>
+            <button data-panel="debugPanel" title="Debug Panel">🛠️ Debug</button>
+            <button data-panel="charChat" title="Chat mit Charakter">💬 Chat</button>
+        </div>
     </div>
 
     <!-- Debug Panel -->
-    <div id="debugPanel">
+    <div id="debugPanel" class="panel-hidden">
         <h2>🔧 Debug Panel - UI Position Editor</h2>
         
         <div class="debug-section">

@@ -401,12 +401,18 @@ class AIConfiguration {
     }
 
     showConfigPanel() {
-        this.configPanel.style.display = 'block';
+        this.configPanel.classList.remove('panel-hidden');
+        this.configPanel.classList.add('panel-visible');
         this.updateConfigContent();
     }
 
     hideConfigPanel() {
-        this.configPanel.style.display = 'none';
+        this.configPanel.classList.add('panel-hidden');
+        this.configPanel.classList.remove('panel-visible');
+    }
+
+    toggleConfigPanel(){
+        if (this.configPanel.classList.contains('panel-hidden')) this.showConfigPanel(); else this.hideConfigPanel();
     }
 
     setAIMode(mode) {

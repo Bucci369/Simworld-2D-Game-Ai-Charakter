@@ -105,7 +105,72 @@ class VillageAI {
 
         console.log('🚀 Initializing game systems...');
         this.init();
+        // Bottom Navigation initialisieren (nach DOM-Inhalten)
+        this.setupBottomNav();
         this.gameLoop();
+    }
+
+    // Bottom Navigation Bar Steuerung
+    setupBottomNav(){
+        if (this._bottomNavReady) return; // nur einmal
+        const nav = document.getElementById('bottomNav');
+        if (!nav) return;
+    const panelIds = ['ui','characterInfo','buildControls','aiDashboard','aiConfigPanel','debugPanel','charChat'];
+        const getPanel = id => document.getElementById(id);
+        const togglePanel = (id)=>{
+            let panel = getPanel(id);
+            // AI Dashboard kann später generiert werden; sicherstellen dass Instanz existiert
+            if (id==='aiDashboard' && !panel) {
+                if (window.aiDashboard) {
+                    panel = document.getElementById('aiDashboard');
+                } else if (typeof AIMonitoringDashboard !== 'undefined') {
+                    window.aiDashboard = new AIMonitoringDashboard();
+                    panel = document.getElementById('aiDashboard');
+                }
+            }
+            if (!panel && id==='aiConfigPanel' && window.aiConfig) {
+                panel = document.getElementById('aiConfigPanel');
+            }
+            if (!panel) return;
+            const visible = !panel.classList.contains('panel-hidden') && panel.style.display !== 'none';
+            // Einheitliche Behandlung für Chat jetzt auch über Klassen
+            if (visible) {
+                panel.classList.add('panel-hidden');
+                panel.classList.remove('panel-visible');
+            } else {
+                panel.classList.remove('panel-hidden');
+                panel.classList.add('panel-visible');
+                if (id==='charChat') this._repositionChat();
+            }
+        };
+        // Initial Panels als sichtbar markieren
+        panelIds.forEach(pid=>{
+            const p = getPanel(pid);
+            if (!p) return;
+            if (!p.classList.contains('panel-hidden') && !p.classList.contains('panel-visible')) {
+                p.classList.add('panel-visible');
+            }
+        });
+        nav.querySelectorAll('button[data-panel]').forEach(btn=>{
+            btn.addEventListener('click', ()=>{
+                const id = btn.getAttribute('data-panel');
+                togglePanel(id);
+                // Active styling exklusiv
+                nav.querySelectorAll('button').forEach(b=> b.classList.remove('active'));
+                btn.classList.add('active');
+            });
+        });
+        this._bottomNavReady = true;
+        // Initial Chat-Position anpassen
+        this._repositionChat();
+    }
+
+    _repositionChat(){
+        const chat = document.getElementById('charChat');
+        const nav = document.getElementById('bottomNav');
+        if (!chat || !nav) return;
+        const navHeight = nav.getBoundingClientRect().height;
+        chat.style.bottom = (navHeight + 14) + 'px';
     }
     
     // Einzelne Charakter-Sprites Loader
@@ -6278,8 +6343,11 @@ class VillageAI {
     this.ctx.restore();
         
         // Debug output every 100 frames
-        if (Date.now() % 5000 < 50) {
+        // Reduziere Spam: Frame-Statistik nur alle 5s exakt einmal
+        const now = Date.now();
+        if (!this._lastFrameStat || now - this._lastFrameStat > 5000) {
             console.log(`🎨 Rendering frame: ${this.characters.length} characters, ${this.terrain.length} terrain elements`);
+            this._lastFrameStat = now;
         }
     }
 

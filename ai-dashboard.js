@@ -13,6 +13,19 @@ class AIMonitoringDashboard {
 
     createDashboard() {
         // Hauptcontainer
+        // Verhindere Doppelinitialisierung (falls schon im DOM wegen BottomNav Toggle)
+        const existing = document.getElementById('aiDashboard');
+        if (existing) {
+            this.dashboard = existing;
+            this.content = existing.querySelector('.ai-dashboard-content');
+            if (!this.content){
+                this.content = document.createElement('div');
+                this.content.className = 'ai-dashboard-content';
+                this.content.style.cssText = 'padding:15px;';
+                this.dashboard.appendChild(this.content);
+            }
+            return; // restlicher Aufbau übersprungen
+        }
         this.dashboard = document.createElement('div');
         this.dashboard.id = 'aiDashboard';
         this.dashboard.style.cssText = `
@@ -27,8 +40,8 @@ class AIMonitoringDashboard {
             color: white;
             font-family: 'Courier New', monospace;
             font-size: 12px;
-            z-index: 10000;
-            display: none;
+            z-index: 1200;
+            /* display durch panel-hidden gesteuert */
             overflow-y: auto;
             backdrop-filter: blur(10px);
         `;
@@ -56,43 +69,15 @@ class AIMonitoringDashboard {
         `;
 
         // Content Container
-        this.content = document.createElement('div');
-        this.content.style.cssText = `
-            padding: 15px;
-        `;
+    this.content = document.createElement('div');
+    this.content.className = 'ai-dashboard-content';
+    this.content.style.cssText = `padding: 15px;`;
 
         this.dashboard.appendChild(header);
         this.dashboard.appendChild(this.content);
         document.body.appendChild(this.dashboard);
 
-        // Toggle Button
-        this.toggleButton = document.createElement('button');
-        this.toggleButton.id = 'toggleAIDashboard';
-        this.toggleButton.innerHTML = '🧠 AI Stats';
-        this.toggleButton.style.cssText = `
-            position: fixed;
-            top: 80px;
-            right: 20px;
-            background: rgba(74, 144, 226, 0.9);
-            border: none;
-            color: white;
-            padding: 10px 15px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 12px;
-            z-index: 9999;
-            backdrop-filter: blur(5px);
-            transition: all 0.3s ease;
-        `;
-        this.toggleButton.addEventListener('mouseenter', () => {
-            this.toggleButton.style.background = 'rgba(74, 144, 226, 1)';
-            this.toggleButton.style.transform = 'scale(1.05)';
-        });
-        this.toggleButton.addEventListener('mouseleave', () => {
-            this.toggleButton.style.background = 'rgba(74, 144, 226, 0.9)';
-            this.toggleButton.style.transform = 'scale(1)';
-        });
-        document.body.appendChild(this.toggleButton);
+    // Button entfällt – Steuerung über BottomNav (data-panel="aiDashboard")
     }
 
     setupEventListeners() {
@@ -110,15 +95,17 @@ class AIMonitoringDashboard {
     }
 
     show() {
-        this.isVisible = true;
-        this.dashboard.style.display = 'block';
+    this.isVisible = true;
+    this.dashboard.classList.remove('panel-hidden');
+    this.dashboard.classList.add('panel-visible');
         this.startUpdating();
         console.log('🧠 AI Dashboard opened');
     }
 
     hide() {
-        this.isVisible = false;
-        this.dashboard.style.display = 'none';
+    this.isVisible = false;
+    this.dashboard.classList.add('panel-hidden');
+    this.dashboard.classList.remove('panel-visible');
         this.stopUpdating();
         console.log('🧠 AI Dashboard closed');
     }
