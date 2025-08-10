@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KI Dorf Simulator - Simplified</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #87CEEB;
+            font-family: Arial, sans-serif;
+        }
+        
+        #gameContainer {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        #gameCanvas {
+            display: block;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+            background: linear-gradient(to bottom, #87CEEB 0%, #98FB98 50%, #228B22 100%);
+        }
+        
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 100;
+            color: #2c3e50;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 20px;
+            border-radius: 16px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <canvas id="gameCanvas"></canvas>
+        
+        <div id="ui">
+            <h3>🏡 KI Dorf (Simplified)</h3>
+            <p><strong>Status:</strong> <span id="status">Loading...</span></p>
+        </div>
+    </div>
+
+    <script>
+        class SimpleVillageAI {
+            constructor() {
+                console.log('🎮 Starting Simple VillageAI...');
+                this.canvas = document.getElementById('gameCanvas');
+                this.ctx = this.canvas.getContext('2d');
+                
+                if (!this.canvas || !this.ctx) {
+                    console.error('❌ Canvas or context not found!');
+                    return;
+                }
+                
+                this.canvas.width = window.innerWidth;
+                this.canvas.height = window.innerHeight;
+                console.log(`📐 Canvas size: ${this.canvas.width}x${this.canvas.height}`);
+
+                this.characters = [];
+                this.terrain = [];
+
+                this.init();
+                this.gameLoop();
+            }
+
+            init() {
+                console.log('🌍 Creating simple terrain...');
+                this.createSimpleTerrain();
+                console.log('👥 Creating simple characters...');
+                this.createSimpleCharacters();
+                console.log('✅ Initialization complete!');
+                
+                document.getElementById('status').textContent = 'Running!';
+            }
+
+            createSimpleTerrain() {
+                // Simple trees
+                for (let i = 0; i < 10; i++) {
+                    this.terrain.push({
+                        type: 'tree',
+                        x: 200 + Math.random() * (this.canvas.width - 400),
+                        y: 200 + Math.random() * (this.canvas.height - 400),
+                        size: 20 + Math.random() * 15
+                    });
+                }
+
+                // Simple bushes
+                for (let i = 0; i < 15; i++) {
+                    this.terrain.push({
+                        type: 'bush',
+                        x: 200 + Math.random() * (this.canvas.width - 400),
+                        y: 200 + Math.random() * (this.canvas.height - 400),
+                        size: 10 + Math.random() * 8
+                    });
+                }
+            }
+
+            createSimpleCharacters() {
+                const names = ['Max', 'Luna', 'Tom', 'Emma'];
+                const colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4'];
+
+                for (let i = 0; i < 4; i++) {
+                    this.characters.push({
+                        name: names[i],
+                        color: colors[i],
+                        x: 300 + i * 100,
+                        y: 300 + Math.random() * 200,
+                        targetX: null,
+                        targetY: null,
+                        speed: 1
+                    });
+                }
+            }
+
+            updateCharacters() {
+                this.characters.forEach(character => {
+                    // Simple random movement
+                    if (!character.targetX || Math.random() < 0.01) {
+                        character.targetX = 200 + Math.random() * (this.canvas.width - 400);
+                        character.targetY = 200 + Math.random() * (this.canvas.height - 400);
+                    }
+
+                    // Move towards target
+                    if (character.targetX && character.targetY) {
+                        const dx = character.targetX - character.x;
+                        const dy = character.targetY - character.y;
+                        const distance = Math.sqrt(dx * dx + dy * dy);
+
+                        if (distance > 5) {
+                            character.x += (dx / distance) * character.speed;
+                            character.y += (dy / distance) * character.speed;
+                        } else {
+                            character.targetX = null;
+                            character.targetY = null;
+                        }
+                    }
+                });
+            }
+
+            drawTerrain() {
+                this.terrain.forEach(item => {
+                    if (item.type === 'tree') {
+                        // Tree trunk
+                        this.ctx.fillStyle = '#8B4513';
+                        this.ctx.fillRect(item.x - 2, item.y, 4, item.size);
+                        
+                        // Tree crown
+                        this.ctx.fillStyle = '#228B22';
+                        this.ctx.beginPath();
+                        this.ctx.arc(item.x, item.y - item.size/4, item.size * 0.6, 0, Math.PI * 2);
+                        this.ctx.fill();
+                    } else if (item.type === 'bush') {
+                        this.ctx.fillStyle = '#32CD32';
+                        this.ctx.beginPath();
+                        this.ctx.arc(item.x, item.y, item.size, 0, Math.PI * 2);
+                        this.ctx.fill();
+                    }
+                });
+            }
+
+            drawCharacters() {
+                this.characters.forEach(character => {
+                    // Body
+                    this.ctx.fillStyle = character.color;
+                    this.ctx.beginPath();
+                    this.ctx.arc(character.x, character.y, 12, 0, Math.PI * 2);
+                    this.ctx.fill();
+
+                    // Head
+                    this.ctx.fillStyle = '#FFEFD5';
+                    this.ctx.beginPath();
+                    this.ctx.arc(character.x, character.y - 8, 8, 0, Math.PI * 2);
+                    this.ctx.fill();
+
+                    // Eyes
+                    this.ctx.fillStyle = '#333';
+                    this.ctx.beginPath();
+                    this.ctx.arc(character.x - 2, character.y - 10, 1, 0, Math.PI * 2);
+                    this.ctx.arc(character.x + 2, character.y - 10, 1, 0, Math.PI * 2);
+                    this.ctx.fill();
+
+                    // Name
+                    this.ctx.fillStyle = '#333';
+                    this.ctx.font = 'bold 11px Arial';
+                    this.ctx.textAlign = 'center';
+                    this.ctx.fillText(character.name, character.x, character.y - 25);
+
+                    // Movement line
+                    if (character.targetX && character.targetY) {
+                        this.ctx.strokeStyle = character.color;
+                        this.ctx.setLineDash([4, 4]);
+                        this.ctx.beginPath();
+                        this.ctx.moveTo(character.x, character.y);
+                        this.ctx.lineTo(character.targetX, character.targetY);
+                        this.ctx.stroke();
+                        this.ctx.setLineDash([]);
+                    }
+                });
+            }
+
+            render() {
+                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                this.drawTerrain();
+                this.drawCharacters();
+            }
+
+            gameLoop() {
+                this.updateCharacters();
+                this.render();
+                requestAnimationFrame(() => this.gameLoop());
+            }
+        }
+
+        // Start the game
+        window.addEventListener('DOMContentLoaded', () => {
+            window.gameInstance = new SimpleVillageAI();
+        });
+    </script>
+</body>
+</html>

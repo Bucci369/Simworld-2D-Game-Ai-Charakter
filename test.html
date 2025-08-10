@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Canvas Test</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #333;
+        }
+        
+        #gameCanvas {
+            display: block;
+            background: #87CEEB;
+            border: 2px solid red;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+    
+    <script>
+        console.log('🎮 Starting simple test...');
+        
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        console.log('Canvas:', canvas);
+        console.log('Context:', ctx);
+        
+        // Set canvas size
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        
+        console.log(`Canvas size: ${canvas.width}x${canvas.height}`);
+        
+        // Draw a simple test
+        ctx.fillStyle = '#FF0000';
+        ctx.fillRect(100, 100, 200, 200);
+        
+        ctx.fillStyle = '#00FF00';
+        ctx.beginPath();
+        ctx.arc(400, 300, 50, 0, Math.PI * 2);
+        ctx.fill();
+        
+        ctx.fillStyle = '#FFFFFF';
+        ctx.font = '20px Arial';
+        ctx.fillText('Test Canvas Works!', 200, 400);
+        
+        console.log('✅ Test drawing complete!');
+    </script>
+</body>
+</html>

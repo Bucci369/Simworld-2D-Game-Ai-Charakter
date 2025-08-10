@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Living AI - Echte KI Charaktere</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(135deg, #1e3c72, #2a5298);
+            font-family: Arial, sans-serif;
+            color: white;
+            height: 100vh;
+            overflow: hidden;
+        }
+        
+        .container {
+            display: grid;
+            grid-template-columns: 300px 1fr 350px;
+            height: 100vh;
+            gap: 20px;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        
+        /* Welt-Ansicht (links) */
+        .world-view {
+            background: rgba(255,255,255,0.1);
+            border-radius: 15px;
+            padding: 20px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        
+        .world-canvas {
+            width: 100%;
+            height: 300px;
+            background: linear-gradient(to bottom, #87CEEB 0%, #98FB98 50%, #228B22 100%);
+            border-radius: 10px;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .character-dot {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            border: 2px solid white;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+        }
+        
+        .character-dot:hover {
+            transform: scale(1.2);
+            box-shadow: 0 0 15px rgba(255,255,255,0.5);
+        }
+        
+        .character-dot.selected {
+            transform: scale(1.3);
+            box-shadow: 0 0 20px rgba(255,255,255,0.8);
+        }
+        
+        .character-list {
+            margin-top: 20px;
+        }
+        
+        .character-item {
+            padding: 10px;
+            margin: 5px 0;
+            background: rgba(255,255,255,0.1);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border-left: 4px solid transparent;
+        }
+        
+        .character-item:hover {
+            background: rgba(255,255,255,0.2);
+            transform: translateX(5px);
+        }
+        
+        .character-item.selected {
+            background: rgba(255,255,255,0.3);
+            border-left-color: #4CAF50;
+        }
+        
+        /* Chat-Bereich (mitte) */
+        .chat-area {
+            background: rgba(255,255,255,0.1);
+            border-radius: 15px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.2);
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .chat-header {
+            padding: 20px;
+            border-bottom: 1px solid rgba(255,255,255,0.2);
+            text-align: center;
+        }
+        
+        .chat-messages {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            max-height: calc(100vh - 200px);
+        }
+        
+        .message {
+            margin: 15px 0;
+            padding: 15px;
+            border-radius: 15px;
+            max-width: 80%;
+            word-wrap: break-word;
+            position: relative;
+        }
+        
+        .message.user {
+            background: linear-gradient(135deg, #4CAF50, #45a049);
+            margin-left: auto;
+            text-align: right;
+        }
+        
+        .message.ai {
+            background: linear-gradient(135deg, #2196F3, #1976D2);
+            margin-right: auto;
+        }
+        
+        .message-sender {
+            font-size: 12px;
+            opacity: 0.8;
+            margin-bottom: 5px;
+        }
+        
+        .message-time {
+            font-size: 10px;
+            opacity: 0.6;
+            position: absolute;
+            bottom: 5px;
+            right: 10px;
+        }
+        
+        .chat-input {
+            padding: 20px;
+            border-top: 1px solid rgba(255,255,255,0.2);
+            display: flex;
+            gap: 10px;
+        }
+        
+        .chat-input input {
+            flex: 1;
+            padding: 12px 15px;
+            border: none;
+            border-radius: 25px;
+            background: rgba(255,255,255,0.2);
+            color: white;
+            font-size: 14px;
+        }
+        
+        .chat-input input::placeholder {
+            color: rgba(255,255,255,0.7);
+        }
+        
+        .chat-input button {
+            padding: 12px 20px;
+            border: none;
+            border-radius: 25px;
+            background: linear-gradient(135deg, #4CAF50, #45a049);
+            color: white;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.3s ease;
+        }
+        
+        .chat-input button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(76,175,80,0.4);
+        }
+        
+        /* KI Status (rechts) */
+        .ai-status {
+            background: rgba(255,255,255,0.1);
+            border-radius: 15px;
+            padding: 20px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        
+        .ai-info {
+            margin-bottom: 20px;
+            padding: 15px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 10px;
+        }
+        
+        .ai-info h3 {
+            margin: 0 0 10px 0;
+            color: #4CAF50;
+        }
+        
+        .emotion-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin: 5px 0;
+        }
+        
+        .emotion-name {
+            font-size: 12px;
+            width: 80px;
+        }
+        
+        .emotion-level {
+            flex: 1;
+            height: 6px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 3px;
+            margin: 0 10px;
+            overflow: hidden;
+        }
+        
+        .emotion-fill {
+            height: 100%;
+            border-radius: 3px;
+            transition: width 0.3s ease;
+        }
+        
+        .emotion-value {
+            font-size: 10px;
+            opacity: 0.8;
+        }
+        
+        .thoughts-section {
+            margin-top: 20px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        
+        .thought {
+            padding: 8px;
+            margin: 5px 0;
+            background: rgba(255,255,255,0.05);
+            border-radius: 8px;
+            font-size: 12px;
+            font-style: italic;
+            border-left: 3px solid #FFC107;
+        }
+        
+        .typing-indicator {
+            display: none;
+            padding: 10px;
+            font-style: italic;
+            opacity: 0.7;
+            color: #4CAF50;
+        }
+        
+        .typing-indicator.active {
+            display: block;
+        }
+        
+        .controls {
+            margin-top: 20px;
+        }
+        
+        .control-btn {
+            width: 100%;
+            padding: 10px;
+            margin: 5px 0;
+            border: none;
+            border-radius: 8px;
+            background: rgba(255,255,255,0.2);
+            color: white;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .control-btn:hover {
+            background: rgba(255,255,255,0.3);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Welt-Ansicht -->
+        <div class="world-view">
+            <h3>🌍 Lebende Welt</h3>
+            <div class="world-canvas" id="worldCanvas">
+                <!-- Charaktere werden hier dynamisch eingefügt -->
+            </div>
+            
+            <div class="character-list" id="characterList">
+                <!-- Charakterliste wird hier gefüllt -->
+            </div>
+        </div>
+        
+        <!-- Chat-Bereich -->
+        <div class="chat-area">
+            <div class="chat-header">
+                <h2 id="chatTitle">Wähle einen Charakter zum Chatten</h2>
+                <div class="typing-indicator" id="typingIndicator">💭 denkt nach...</div>
+            </div>
+            
+            <div class="chat-messages" id="chatMessages">
+                <div style="text-align: center; opacity: 0.7; margin-top: 50px;">
+                    Wähle links einen Charakter aus, um mit ihm zu chatten!<br>
+                    Diese KI-Charaktere leben wirklich - sie denken, fühlen und erinnern sich.
+                </div>
+            </div>
+            
+            <div class="chat-input">
+                <input type="text" id="messageInput" placeholder="Schreibe eine Nachricht..." disabled>
+                <button id="sendButton" onclick="sendMessage()" disabled>Senden</button>
+            </div>
+        </div>
+        
+        <!-- KI Status -->
+        <div class="ai-status">
+            <h3>🧠 KI Status</h3>
+            <div id="aiStatusContent">
+                <div style="text-align: center; opacity: 0.7; margin-top: 50px;">
+                    Wähle einen Charakter aus, um seinen geistigen Zustand zu sehen...
+                </div>
+            </div>
+            
+            <div class="controls">
+                <button class="control-btn" onclick="saveAllCharacters()">💾 Alle Speichern</button>
+                <button class="control-btn" onclick="resetCharacter()">🔄 Charakter Reset</button>
+                <button class="control-btn" onclick="exportCharacter()">📤 Export Persönlichkeit</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Living AI System -->
+    <script src="living-ai.js"></script>
+    
+    <script>
+        // Globale Variablen
+        let characters = [];
+        let selectedCharacter = null;
+        let updateInterval = null;
+        
+        // Charaktere erstellen
+        function initializeCharacters() {
+            const characterConfigs = [
+                {
+                    name: "Emma",
+                    color: "#FF6B6B",
+                    position: { x: 50, y: 80 },
+                    personality: {
+                        traits: { mut: 0.3, neugier: 0.8, fleiss: 0.9, sozial: 0.9 }
+                    }
+                },
+                {
+                    name: "Alex",
+                    color: "#4ECDC4", 
+                    position: { x: 150, y: 120 },
+                    personality: {
+                        traits: { mut: 0.8, neugier: 0.9, fleiss: 0.6, sozial: 0.7 }
+                    }
+                },
+                {
+                    name: "Luna", 
+                    color: "#45B7D1",
+                    position: { x: 200, y: 60 },
+                    personality: {
+                        traits: { mut: 0.6, neugier: 0.7, fleiss: 0.8, sozial: 0.5 }
+                    }
+                },
+                {
+                    name: "Max",
+                    color: "#96CEB4",
+                    position: { x: 120, y: 180 },
+                    personality: {
+                        traits: { mut: 0.4, neugier: 0.6, fleiss: 0.7, sozial: 0.8 }
+                    }
+                }
+            ];
+            
+            characterConfigs.forEach(config => {
+                const ai = new LivingAI(config.name, config.personality);
+                characters.push({
+                    ai: ai,
+                    color: config.color,
+                    position: config.position
+                });
+            });
+            
+            updateWorldView();
+            updateCharacterList();
+            
+            // Automatische Updates starten
+            startAutoUpdates();
+            
+            console.log('🎮 Living AI Charaktere initialisiert!');
+        }
+        
+        function updateWorldView() {
+            const canvas = document.getElementById('worldCanvas');
+            canvas.innerHTML = '';
+            
+            characters.forEach((char, index) => {
+                const dot = document.createElement('div');
+                dot.className = 'character-dot';
+                dot.style.backgroundColor = char.color;
+                dot.style.left = char.position.x + 'px';
+                dot.style.top = char.position.y + 'px';
+                dot.textContent = char.ai.name[0];
+                dot.onclick = () => selectCharacter(index);
+                
+                if (selectedCharacter === index) {
+                    dot.classList.add('selected');
+                }
+                
+                canvas.appendChild(dot);
+            });
+        }
+        
+        function updateCharacterList() {
+            const list = document.getElementById('characterList');
+            list.innerHTML = '';
+            
+            characters.forEach((char, index) => {
+                const item = document.createElement('div');
+                item.className = 'character-item';
+                item.onclick = () => selectCharacter(index);
+                
+                if (selectedCharacter === index) {
+                    item.classList.add('selected');
+                }
+                
+                const state = char.ai.getCurrentState();
+                item.innerHTML = `
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <div style="width: 12px; height: 12px; background: ${char.color}; border-radius: 50%;"></div>
+                        <div>
+                            <div style="font-weight: bold;">${char.ai.name}</div>
+                            <div style="font-size: 10px; opacity: 0.8;">
+                                Bewusstsein: ${Math.round(state.awareness * 100)}%
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+                list.appendChild(item);
+            });
+        }
+        
+        function selectCharacter(index) {
+            selectedCharacter = index;
+            const char = characters[index];
+            
+            // UI Updates
+            updateWorldView();
+            updateCharacterList();
+            updateChatHeader(char.ai.name);
+            updateAIStatus(char.ai);
+            
+            // Chat Input aktivieren
+            document.getElementById('messageInput').disabled = false;
+            document.getElementById('sendButton').disabled = false;
+            document.getElementById('messageInput').placeholder = `Schreibe ${char.ai.name} eine Nachricht...`;
+            
+            // Fokus auf Input
+            document.getElementById('messageInput').focus();
+        }
+        
+        function updateChatHeader(name) {
+            document.getElementById('chatTitle').textContent = `💬 Chat mit ${name}`;
+        }
+        
+        function updateAIStatus(ai) {
+            const container = document.getElementById('aiStatusContent');
+            const state = ai.getCurrentState();
+            
+            container.innerHTML = `
+                <div class="ai-info">
+                    <h3>${ai.name}</h3>
+                    <div style="font-size: 12px; opacity: 0.8;">
+                        Bewusstsein: ${Math.round(state.awareness * 100)}%<br>
+                        Gespräche: ${state.conversationCount}<br>
+                        Erinnerungen: ${state.memoryCount}
+                    </div>
+                </div>
+                
+                <div class="ai-info">
+                    <h4>🎭 Emotionen</h4>
+                    ${Object.entries(state.emotions).map(([emotion, value]) => `
+                        <div class="emotion-bar">
+                            <span class="emotion-name">${emotion}</span>
+                            <div class="emotion-level">
+                                <div class="emotion-fill" style="width: ${value * 100}%; background: ${getEmotionColor(emotion)};"></div>
+                            </div>
+                            <span class="emotion-value">${Math.round(value * 100)}%</span>
+                        </div>
+                    `).join('')}
+                </div>
+                
+                <div class="thoughts-section">
+                    <h4>💭 Aktuelle Gedanken</h4>
+                    ${state.currentThoughts.map(thought => `
+                        <div class="thought">${thought.thought}</div>
+                    `).join('')}
+                </div>
+            `;
+        }
+        
+        function getEmotionColor(emotion) {
+            const colors = {
+                happiness: '#4CAF50',
+                fear: '#F44336',
+                curiosity: '#2196F3',
+                anger: '#FF5722'
+            };
+            return colors[emotion] || '#FFC107';
+        }
+        
+        async function sendMessage() {
+            if (!selectedCharacter !== null) return;
+            
+            const input = document.getElementById('messageInput');
+            const message = input.value.trim();
+            if (!message) return;
+            
+            const char = characters[selectedCharacter];
+            
+            // User Message anzeigen
+            addMessageToChat('user', 'Du', message);
+            input.value = '';
+            
+            // Typing Indicator
+            showTypingIndicator(true);
+            
+            try {
+                // KI Antwort generieren
+                const response = await char.ai.respondToMessage(message);
+                
+                // Kurze Verzögerung für Realismus
+                setTimeout(() => {
+                    showTypingIndicator(false);
+                    addMessageToChat('ai', char.ai.name, response);
+                    updateAIStatus(char.ai);
+                }, 1000 + Math.random() * 2000);
+                
+            } catch (error) {
+                console.error('Fehler bei KI Antwort:', error);
+                showTypingIndicator(false);
+                addMessageToChat('ai', char.ai.name, 'Entschuldige, ich habe gerade Probleme beim Denken...');
+            }
+        }
+        
+        function addMessageToChat(type, sender, message) {
+            const chatMessages = document.getElementById('chatMessages');
+            
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${type}`;
+            
+            const time = new Date().toLocaleTimeString('de-DE', { 
+                hour: '2-digit', 
+                minute: '2-digit' 
+            });
+            
+            messageDiv.innerHTML = `
+                <div class="message-sender">${sender}</div>
+                <div>${message}</div>
+                <div class="message-time">${time}</div>
+            `;
+            
+            chatMessages.appendChild(messageDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+        
+        function showTypingIndicator(show) {
+            const indicator = document.getElementById('typingIndicator');
+            if (show) {
+                indicator.classList.add('active');
+            } else {
+                indicator.classList.remove('active');
+            }
+        }
+        
+        function startAutoUpdates() {
+            updateInterval = setInterval(() => {
+                updateCharacterList();
+                if (selectedCharacter !== null) {
+                    updateAIStatus(characters[selectedCharacter].ai);
+                }
+            }, 2000);
+        }
+        
+        // Steuerungsfunktionen
+        function saveAllCharacters() {
+            const saveData = characters.map(char => char.ai.savePersonality());
+            localStorage.setItem('livingAI_characters', JSON.stringify(saveData));
+            alert('✅ Alle Charaktere gespeichert!');
+        }
+        
+        function resetCharacter() {
+            if (selectedCharacter === null) {
+                alert('❌ Wähle zuerst einen Charakter aus!');
+                return;
+            }
+            
+            if (confirm('🔄 Charakter wirklich zurücksetzen? Alle Erinnerungen gehen verloren!')) {
+                const char = characters[selectedCharacter];
+                // Hier könntest du den Charakter neu initialisieren
+                alert('🔄 Charakter wurde zurückgesetzt!');
+            }
+        }
+        
+        function exportCharacter() {
+            if (selectedCharacter === null) {
+                alert('❌ Wähle zuerst einen Charakter aus!');
+                return;
+            }
+            
+            const char = characters[selectedCharacter];
+            const data = char.ai.savePersonality();
+            
+            const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
+            const url = URL.createObjectURL(blob);
+            
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${char.ai.name}_personality.json`;
+            a.click();
+            
+            URL.revokeObjectURL(url);
+        }
+        
+        // Event Listeners
+        document.getElementById('messageInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+        
+        // Initialisierung
+        window.addEventListener('DOMContentLoaded', () => {
+            initializeCharacters();
+            console.log('🚀 Living AI Chat Interface gestartet!');
+        });
+    </script>
+</body>
+</html>

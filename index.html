@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KI Dorf Simulator</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #87CEEB;
+            font-family: Arial, sans-serif;
+        }
+        
+        #gameContainer {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        #gameCanvas {
+            display: block;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+            background: linear-gradient(to bottom, #87CEEB 0%, #98FB98 50%, #228B22 100%);
+        }
+        
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 100;
+            color: #2c3e50;
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.95), rgba(240, 248, 255, 0.9));
+            padding: 20px;
+            border-radius: 16px;
+            box-shadow: 
+                0 8px 32px rgba(0,0,0,0.1),
+                0 2px 8px rgba(0,0,0,0.05),
+                inset 0 1px 0 rgba(255,255,255,0.8);
+            border: 1px solid rgba(255,255,255,0.3);
+            backdrop-filter: blur(10px);
+            min-width: 220px;
+            transition: all 0.3s ease;
+        }
+        
+        #ui:hover {
+            transform: translateY(-2px);
+            box-shadow: 
+                0 12px 40px rgba(0,0,0,0.15),
+                0 4px 12px rgba(0,0,0,0.1),
+                inset 0 1px 0 rgba(255,255,255,0.9);
+        }
+        
+        #characterInfo {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            z-index: 100;
+            color: #f4f4f4;
+            background: #181a1f; /* solides dunkles Panel */
+            padding: 14px 16px 10px;
+            border-radius: 14px;
+            box-shadow: 0 6px 20px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.04);
+            border: 1px solid #23262b;
+            min-width: 300px;
+            max-height: 84vh;
+            overflow-y: auto;
+            background-image: linear-gradient(155deg, rgba(255,255,255,0.03), rgba(255,255,255,0));
+        }
+        #characterInfo #charPanelToggle {
+            position: absolute;
+            top: 6px;
+            right: 6px;
+            background: rgba(255,255,255,0.25);
+            border: 1px solid rgba(255,255,255,0.5);
+            color: #fff;
+            border-radius: 8px;
+            font-size: 11px;
+            cursor: pointer;
+            padding: 4px 8px 5px;
+            line-height: 1;
+        }
+        #characterInfo.collapsed {
+            width: 46px;
+            min-width: 46px;
+            max-width: 46px;
+            padding: 10px 8px 8px;
+            overflow: hidden;
+        }
+        #characterInfo.collapsed h3,
+        #characterInfo.collapsed .character-panel,
+        #characterInfo.collapsed #characterList { display: none; }
+        #characterInfo.collapsed #charPanelToggle { position: static; display:block; margin:0 auto; }
+
+        /* Spieler-Charakter Chat */
+        #charChat {
+            position: fixed;
+            bottom: 14px;
+            right: 16px;
+            width: 320px;
+            max-height: 440px;
+            background: #1f2429;
+            border: 1px solid #30363d;
+            border-radius: 12px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.55);
+            display: none;
+            z-index: 140;
+            font-size: 12px;
+            color:#e2e8f0;
+            overflow:hidden;
+            display:flex;
+            flex-direction:column;
+        }
+        #charChat.active { display:flex; }
+        #charChatHeader { background:#272e35; padding:8px 10px; font-weight:600; display:flex; align-items:center; justify-content:space-between; }
+        #charChatHeader button { background:none; border:none; color:#aaa; font-size:16px; cursor:pointer; }
+        #charChatHeader button:hover { color:#fff; }
+        #charChatMessages { flex:1; padding:10px 10px 4px; overflow-y:auto; background:linear-gradient(180deg,#1f2429,#1c2024); }
+        #charChatMessages .msg { margin:0 0 8px; line-height:1.3; word-wrap:break-word; }
+        #charChatMessages .msg.you { color:#ffcf4d; }
+        #charChatMessages .msg.char { color:#b4d3ff; }
+        #charChatMessages .meta { font-size:10px; opacity:0.55; margin-top:-4px; margin-bottom:6px; }
+        #charChatInputBar { display:flex; gap:6px; padding:8px 8px 10px; background:#272e35; }
+        #charChatInputBar input { flex:1; background:#1b2024; border:1px solid #333b42; padding:6px 8px; border-radius:6px; color:#ddd; font-size:12px; }
+        #charChatInputBar input:focus { outline:1px solid #ffcf4d; }
+        #charChatInputBar button { background:#ffcf4d; color:#222; border:none; padding:6px 12px; border-radius:6px; font-weight:600; cursor:pointer; }
+        #charChatInputBar button:hover { background:#ffd96f; }
+        #suggestedPrompts { display:flex; flex-wrap:wrap; gap:4px; padding:6px 8px 2px; background:#22282d; }
+        #suggestedPrompts button { background:#323b43; border:1px solid #3d464e; color:#cfd8dc; font-size:10px; padding:3px 6px; border-radius:5px; cursor:pointer; }
+        #suggestedPrompts button:hover { background:#3e4952; }
+        
+        .character-panel {
+            margin-bottom: 10px;
+            padding: 9px 11px 7px;
+            border-left: 4px solid #ffcb2f;
+            background: #22252b;
+            border-radius: 8px;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.04);
+            position: relative;
+        }
+        .character-panel::before { display:none; }
+        
+        .character-name {
+            font-weight: 600;
+            color: #fff;
+            font-size: 13px;
+            letter-spacing: .5px;
+            margin-bottom: 4px;
+            text-shadow: 0 1px 0 #000;
+        }
+        
+        .character-status {
+            font-size: 11px;
+            color: #111;
+            background: linear-gradient(135deg,#ffe680,#ffd040);
+            padding: 2px 10px 3px;
+            border-radius: 14px;
+            display: inline-block;
+            margin-bottom: 6px;
+            font-weight: 600;
+        }
+        
+    .personality-bar, .personality-fill { display:none; }
+        
+        h3 {
+            margin: 0 0 10px 0;
+            color: #ffffff;
+            font-size: 15px;
+            font-weight: 600;
+            letter-spacing:.5px;
+        }
+        
+        p {
+            margin: 8px 0;
+            font-weight: 500;
+        }
+        
+    .resource-icon { filter:none; }
+        
+        /* Debug Panel Styles */
+        #debugPanel {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            width: 400px;
+            max-height: 90vh;
+            background: linear-gradient(135deg, rgba(20, 30, 48, 0.95), rgba(36, 59, 85, 0.95));
+            color: #e2e8f0;
+            border: 2px solid rgba(74, 144, 226, 0.3);
+            border-radius: 20px;
+            padding: 20px;
+            box-shadow: 
+                0 20px 60px rgba(0,0,0,0.4),
+                0 8px 32px rgba(0,0,0,0.2),
+                inset 0 1px 0 rgba(255,255,255,0.1);
+            backdrop-filter: blur(15px);
+            z-index: 10000;
+            font-family: 'Courier New', monospace;
+            display: none;
+            overflow-y: auto;
+            cursor: move;
+        }
+        
+        #debugPanel h2 {
+            cursor: move;
+            user-select: none;
+        }
+        
+        #debugPanel.visible {
+            display: block;
+            animation: debugPanelFadeIn 0.3s ease-out;
+        }
+        
+        @keyframes debugPanelFadeIn {
+            from { opacity: 0; transform: translate(-50%, -50%) scale(0.9); }
+            to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+        }
+        
+        #debugPanel h2 {
+            margin: 0 0 20px 0;
+            color: #4a90e2;
+            font-size: 18px;
+            font-weight: bold;
+            text-align: center;
+            text-shadow: 0 0 10px rgba(74, 144, 226, 0.5);
+        }
+        
+        .debug-section {
+            margin-bottom: 25px;
+            padding: 15px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 12px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        .debug-section h3 {
+            margin: 0 0 15px 0;
+            color: #64b5f6;
+            font-size: 16px;
+            font-weight: bold;
+        }
+        
+        .debug-control {
+            display: flex;
+            align-items: center;
+            margin-bottom: 12px;
+            gap: 15px;
+        }
+        
+        .debug-control label {
+            min-width: 80px;
+            font-size: 12px;
+            color: #94a3b8;
+            font-weight: 500;
+        }
+        
+        .debug-slider {
+            flex: 1;
+            height: 6px;
+            background: linear-gradient(90deg, #1e293b, #334155);
+            border-radius: 20px;
+            outline: none;
+            appearance: none;
+            -webkit-appearance: none;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        .debug-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 20px;
+            height: 20px;
+            background: linear-gradient(135deg, #4a90e2, #64b5f6);
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 2px 8px rgba(74, 144, 226, 0.4);
+            border: 2px solid rgba(255,255,255,0.2);
+        }
+        
+        .debug-input {
+            width: 60px;
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 6px;
+            color: #e2e8f0;
+            padding: 4px 8px;
+            font-size: 12px;
+            text-align: center;
+        }
+        
+        .debug-buttons {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+            margin-top: 20px;
+        }
+        
+        .debug-btn {
+            padding: 8px 16px;
+            background: linear-gradient(135deg, #4a90e2, #357abd);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: 0 2px 8px rgba(74, 144, 226, 0.3);
+        }
+        
+        .debug-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(74, 144, 226, 0.4);
+        }
+        
+        .debug-btn.danger {
+            background: linear-gradient(135deg, #ef4444, #dc2626);
+        }
+        
+        .debug-btn.success {
+            background: linear-gradient(135deg, #10b981, #059669);
+        }
+        
+        .debug-output {
+            background: rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 8px;
+            padding: 12px;
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            color: #94a3b8;
+            white-space: pre-wrap;
+            max-height: 150px;
+            overflow-y: auto;
+            margin-top: 15px;
+        }
+        
+        .debug-hotkey {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(74, 144, 226, 0.1);
+            color: #4a90e2;
+            padding: 8px 12px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 500;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(74, 144, 226, 0.2);
+            z-index: 9999;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 0.7; }
+            50% { opacity: 1; }
+        }
+        
+        /* UI Dragging Styles */
+        .ui-draggable {
+            cursor: move !important;
+            border: 2px dashed rgba(74, 144, 226, 0.6) !important;
+            transform: scale(1.02);
+            transition: all 0.2s ease;
+        }
+        
+        .ui-dragging {
+            opacity: 0.8;
+            z-index: 9999 !important;
+            box-shadow: 
+                0 15px 50px rgba(0,0,0,0.3),
+                0 5px 20px rgba(0,0,0,0.2) !important;
+        }
+        
+        .ui-drag-hint {
+            position: absolute;
+            top: -10px;
+            right: -10px;
+            background: rgba(74, 144, 226, 0.9);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 10px;
+            font-weight: bold;
+            animation: pulse 2s infinite;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <canvas id="gameCanvas"></canvas>
+        <!-- Chat UI -->
+        <div id="charChat">
+            <div id="charChatHeader">
+                <span id="charChatTitle">Chat</span>
+                <button id="charChatClose" title="Schließen">×</button>
+            </div>
+            <div id="charChatMessages"></div>
+            <div id="suggestedPrompts"></div>
+            <div id="charChatInputBar">
+                <input id="charChatInput" type="text" placeholder="Frage oder Nachricht..." maxlength="220" />
+                <button id="charChatSend">Senden</button>
+            </div>
+        </div>
+        
+        <!-- Game UI Panel -->
+        <div id="ui">
+            <h3>🏡 KI Dorf mit echter AI</h3>
+            <p><strong>🕐 Zeit:</strong> <span id="gameTime">Tag 1, 08:00</span></p>
+            <p><strong>👥 Charaktere:</strong> <span id="charCount">0</span></p>
+            <p><strong>📦 Ressourcen:</strong></p>
+            <p><span class="resource-icon">🍎</span>Essen: <span id="food">0</span></p>
+            <p><span class="resource-icon">🪵</span>Holz: <span id="wood">0</span></p>
+            <p><strong>🏚️ Häuser:</strong> <span id="housesBuilt">0</span> gebaut / <span id="housesProgress">0</span> Baustellen</p>
+            <p><strong>🐾 Tiere:</strong> <span id="animalCount">0</span></p>
+        </div>
+        
+        <div id="characterInfo">
+            <button id="charPanelToggle" title="Ein/Ausklappen">−</button>
+            <h3>👥 Intelligente Charaktere</h3>
+            <div id="characterList"></div>
+        </div>
+        <!-- Spieler Bau UI -->
+        <div id="buildControls" style="position:absolute; top:20px; left:260px; z-index:120; background:rgba(255,255,255,0.85); padding:10px 14px; border-radius:12px; font-size:12px; color:#222; box-shadow:0 4px 14px rgba(0,0,0,0.18);">
+            <button id="placeHouseBtn" style="background:#4caf50; border:none; color:#fff; padding:6px 10px; border-radius:6px; cursor:pointer; font-weight:600;">Haus platzieren (H)</button>
+            <button id="placeHutBtn" style="background:#8d6e63; border:none; color:#fff; padding:6px 10px; border-radius:6px; cursor:pointer; font-weight:600;">Hütte platzieren (U)</button>
+            <button id="placeWarehouseBtn" style="background:#ff9800; border:none; color:#fff; padding:6px 10px; border-radius:6px; cursor:pointer; font-weight:600;">Lager bauen (L)</button>
+            <div style="margin-top:6px; line-height:1.3; max-width:280px;">
+                <strong>Wohnraum:</strong> Jeder Charakter braucht ein Haus/Hütte.<br>
+                <strong>Lager:</strong> Gemeinsamer Speicher für Holz (100) und Nahrung (50). Charaktere können dort Ressourcen ein- und auslagern.
+            </div>
+            <div id="buildStatus" style="margin-top:6px; font-size:11px; color:#444; min-height:14px;"></div>
+        </div>
+    </div>
+
+    <!-- Debug Panel -->
+    <div id="debugPanel">
+        <h2>🔧 Debug Panel - UI Position Editor</h2>
+        
+        <div class="debug-section">
+            <h3>📋 Game UI Panel</h3>
+            <div class="debug-control">
+                <label>Top:</label>
+                <input type="range" class="debug-slider" id="ui-top" min="0" max="500" value="20">
+                <input type="number" class="debug-input" id="ui-top-input" value="20">px
+            </div>
+            <div class="debug-control">
+                <label>Left:</label>
+                <input type="range" class="debug-slider" id="ui-left" min="0" max="500" value="20">
+                <input type="number" class="debug-input" id="ui-left-input" value="20">px
+            </div>
+            <div class="debug-control">
+                <label>Z-Index:</label>
+                <input type="range" class="debug-slider" id="ui-zindex" min="1" max="1000" value="100">
+                <input type="number" class="debug-input" id="ui-zindex-input" value="100">
+            </div>
+        </div>
+        
+        <div class="debug-section">
+            <h3>👥 Character Info Panel</h3>
+            <div class="debug-control">
+                <label>Top:</label>
+                <input type="range" class="debug-slider" id="characterInfo-top" min="0" max="500" value="20">
+                <input type="number" class="debug-input" id="characterInfo-top-input" value="20">px
+            </div>
+            <div class="debug-control">
+                <label>Right:</label>
+                <input type="range" class="debug-slider" id="characterInfo-right" min="0" max="500" value="20">
+                <input type="number" class="debug-input" id="characterInfo-right-input" value="20">px
+            </div>
+            <div class="debug-control">
+                <label>Z-Index:</label>
+                <input type="range" class="debug-slider" id="characterInfo-zindex" min="1" max="1000" value="100">
+                <input type="number" class="debug-input" id="characterInfo-zindex-input" value="100">
+            </div>
+        </div>
+        
+        <div class="debug-section">
+            <h3>🌲 Terrain Generation</h3>
+            <div class="debug-control">
+                <label>Bäume:</label>
+                <input type="range" class="debug-slider" id="terrain-trees" min="0" max="100" value="25">
+                <input type="number" class="debug-input" id="terrain-trees-input" value="25">
+                <button class="debug-btn" id="regenerate-trees">🌳</button>
+            </div>
+            <div class="debug-control">
+                <label>Berge:</label>
+                <input type="range" class="debug-slider" id="terrain-mountains" min="0" max="50" value="8">
+                <input type="number" class="debug-input" id="terrain-mountains-input" value="8">
+                <button class="debug-btn" id="regenerate-mountains">⛰️</button>
+            </div>
+            <div class="debug-control">
+                <label>Sträucher:</label>
+                <input type="range" class="debug-slider" id="terrain-bushes" min="0" max="100" value="40">
+                <input type="number" class="debug-input" id="terrain-bushes-input" value="40">
+                <button class="debug-btn" id="regenerate-bushes">🌿</button>
+            </div>
+            <div class="debug-control">
+                <label>Fluss:</label>
+                <input type="range" class="debug-slider" id="terrain-river-width" min="20" max="80" value="40">
+                <input type="number" class="debug-input" id="terrain-river-width-input" value="40">px
+                <button class="debug-btn" id="regenerate-river">🌊</button>
+            </div>
+        </div>
+        
+        <div class="debug-section">
+            <h3>🌉 Brücke</h3>
+            <div class="debug-control">
+                <label>Breite:</label>
+                <input type="range" class="debug-slider" id="bridge-width" min="40" max="150" value="90">
+                <input type="number" class="debug-input" id="bridge-width-input" value="90">px
+            </div>
+            <div class="debug-control">
+                <label>Höhe:</label>
+                <input type="range" class="debug-slider" id="bridge-height" min="8" max="25" value="12">
+                <input type="number" class="debug-input" id="bridge-height-input" value="12">px
+            </div>
+            <div class="debug-control">
+                <label>Winkel:</label>
+                <input type="range" class="debug-slider" id="bridge-angle" min="-90" max="90" value="23">
+                <input type="number" class="debug-input" id="bridge-angle-input" value="23">°
+            </div>
+        </div>
+        
+        <div class="debug-section">
+            <h3>🎯 Terrain Editor</h3>
+            <div class="debug-control">
+                <label>Mode:</label>
+                <select class="debug-input" id="edit-mode" style="width: 120px;">
+                    <option value="none">View</option>
+                    <option value="drag" selected>Drag & Drop</option>
+                    <option value="add-tree">Add Tree</option>
+                    <option value="add-mountain">Add Berg</option>
+                    <option value="add-bush">Add Strauch</option>
+                    <option value="delete">Delete</option>
+                </select>
+                <span style="font-size: 10px; color: #94a3b8;">🎯 Drag Mode!</span>
+            </div>
+            <div class="debug-control">
+                <button class="debug-btn" id="toggle-debug-panel">📱 Hide Panel</button>
+                <button class="debug-btn danger" id="clear-terrain">🗑️ Clear All</button>
+                <button class="debug-btn" id="export-terrain">📄 Export</button>
+                <button class="debug-btn success" id="randomize-terrain">🎲 Random</button>
+                <button class="debug-btn" id="load-custom-terrain">🎨 Load Custom</button>
+            </div>
+        </div>
+        
+        <div class="debug-section">
+            <h3>📍 Selected Element</h3>
+            <div id="selected-info" style="font-size: 12px; color: #94a3b8; min-height: 60px;">
+                Select an element in Drag & Drop mode to see coordinates...
+            </div>
+            <div class="debug-control">
+                <button class="debug-btn" id="copy-positions">📋 Copy All Positions</button>
+                <button class="debug-btn" id="copy-selected">📋 Copy Selected</button>
+            </div>
+        </div>
+        
+        <div class="debug-buttons">
+            <button class="debug-btn" id="copyCSS">📋 Copy CSS</button>
+            <button class="debug-btn success" id="savePreset">💾 Save Preset</button>
+            <button class="debug-btn" id="loadPreset">📂 Load Preset</button>
+            <button class="debug-btn danger" id="resetPositions">🔄 Reset</button>
+            <button class="debug-btn" id="closeDebug">❌ Close</button>
+        </div>
+        
+        <div class="debug-output" id="cssOutput">
+Click "Copy CSS" to generate CSS code for current positions...
+        </div>
+    </div>
+    
+    <div class="debug-hotkey" id="debugHotkey">
+        Press Ctrl+D to open Debug Panel
+    </div>
+    
+    <!-- Floating Debug Controls when panel is hidden -->
+    <div id="floatingControls" style="
+        position: fixed; 
+        bottom: 20px; 
+        left: 50%; 
+        transform: translateX(-50%); 
+        background: rgba(20, 30, 48, 0.95); 
+        padding: 10px 20px; 
+        border-radius: 25px; 
+        color: white; 
+        display: none;
+        z-index: 9999;
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(74, 144, 226, 0.3);
+    ">
+        <span style="margin-right: 15px;">🎯 Drag & Drop Mode Active</span>
+        <button id="showPanelBtn" style="
+            background: #4a90e2; 
+            border: none; 
+            color: white; 
+            padding: 5px 10px; 
+            border-radius: 12px; 
+            cursor: pointer;
+            font-size: 12px;
+        ">📱 Show Panel</button>
+    </div>
+
+    <!-- AI MODULES RE-ENABLED -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
+    <script src="ai-config.js"></script>
+    <script src="ai-brain.js"></script>
+    <script src="natural-conversation.js"></script>
+    <script src="survival-conversation.js"></script>
+    <script src="collective-intelligence.js"></script>
+    <script src="ai-dashboard.js"></script>
+    <script src="debug.js"></script>
+    
+    <!-- Game Scripts -->
+    <script src="game.js"></script>
+    <script>
+        // Bootstrap Game nach Laden aller Module
+        window.addEventListener('load', () => {
+            if (!window.gameInstance) {
+                try {
+                    window.gameInstance = new VillageAI();
+                    if (window.gameInstance.initPlayerChatSystem) window.gameInstance.initPlayerChatSystem();
+                } catch (e) { console.error('Fehler beim Initialisieren des Spiels', e); }
+            }
+        });
+    </script>
+</body>
+</html>
