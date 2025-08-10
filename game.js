@@ -135,11 +135,15 @@ class VillageAI {
             const visible = !panel.classList.contains('panel-hidden') && panel.style.display !== 'none';
             // Einheitliche Behandlung für Chat jetzt auch über Klassen
             if (visible) {
+                if (id==='aiDashboard' && window.aiDashboard) window.aiDashboard.hide();
+                if (id==='aiConfigPanel' && window.aiConfig) window.aiConfig.hideConfigPanel();
                 panel.classList.add('panel-hidden');
                 panel.classList.remove('panel-visible');
             } else {
                 panel.classList.remove('panel-hidden');
                 panel.classList.add('panel-visible');
+                if (id==='aiDashboard' && window.aiDashboard) window.aiDashboard.show();
+                if (id==='aiConfigPanel' && window.aiConfig) window.aiConfig.showConfigPanel();
                 if (id==='charChat') this._repositionChat();
             }
         };

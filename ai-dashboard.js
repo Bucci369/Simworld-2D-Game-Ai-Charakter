@@ -76,13 +76,12 @@ class AIMonitoringDashboard {
         this.dashboard.appendChild(header);
         this.dashboard.appendChild(this.content);
         document.body.appendChild(this.dashboard);
+    this.dashboard.classList.add('panel-hidden');
 
     // Button entfällt – Steuerung über BottomNav (data-panel="aiDashboard")
     }
 
     setupEventListeners() {
-        this.toggleButton.addEventListener('click', () => this.toggle());
-        
         document.getElementById('closeDashboard').addEventListener('click', () => this.hide());
         
         // Keyboard shortcut: Ctrl + I für AI Dashboard
