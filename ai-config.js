@@ -32,8 +32,10 @@ class AIConfiguration {
     }
 
     createConfigPanel() {
-        this.configPanel = document.createElement('div');
-        this.configPanel.id = 'aiConfigPanel';
+    this.configPanel = document.createElement('div');
+    this.configPanel.id = 'aiConfigPanel';
+    // Consistent visibility classes (start hidden; bottom nav toggles)
+    this.configPanel.classList.add('panel-hidden');
         this.configPanel.style.cssText = `
             position: fixed;
             top: 50%;

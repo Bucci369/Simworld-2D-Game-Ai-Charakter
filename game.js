@@ -4965,6 +4965,22 @@ class VillageAI {
             bye: /(tschüss|ciao|auf wieder|bye)/
         };
         let matched = Object.entries(intents).find(([k,rgx])=> rgx.test(t))?.[0] || 'other';
+        // Map Intention auf Konversationsthema für NaturalConversationSystem
+        const mapIntentToTopic = (intent)=>{
+            switch(intent){
+                case 'greeting':
+                case 'status':
+                case 'thanks':
+                case 'bye': return 'social';
+                case 'hunger':
+                case 'thirst':
+                case 'energy':
+                case 'warmth': return 'survival';
+                case 'house': return 'planning';
+                case 'memory': return 'philosophical';
+                default: return 'social';
+            }
+        };
         // Kontext aus Charakterzustand
         const statusBits = [];
         if (char.hunger>65) statusBits.push('etwas hungrig');
@@ -4979,6 +4995,39 @@ class VillageAI {
         }
         const traitTone = this.getTraitTone(char);
         let text;
+
+        // Versuch NaturalConversationSystem zu nutzen für Antwort, bevor wir auf alte Logik zurückfallen
+        let usedConversationSystem = false;
+        if (window.conversationSystem) {
+            try {
+                const topic = mapIntentToTopic(matched);
+                // Pseudo Sprecher (Player) minimal für Kompatibilität
+                const playerObj = {
+                    name: 'Spieler',
+                    traits: char.traits || {},
+                    hunger: 50, thirst:50, energy:80
+                };
+                // Simulierter letzter Player-Satz
+                const lastMessage = { speaker: 'Spieler', message: playerText, timestamp: Date.now(), emotion: 'neutral' };
+                // Nutze interne Antwort-Logik des Systems
+                if (typeof window.conversationSystem.generateIntelligentResponse === 'function') {
+                    text = window.conversationSystem.generateIntelligentResponse(char, playerObj, lastMessage, topic);
+                    usedConversationSystem = true;
+                    // In globales Gesprächslog schreiben
+                    if (Array.isArray(this.conversationLog)) {
+                        this.conversationLog.push({ time: new Date().toLocaleTimeString(), speaker: 'Player', partner: char.name, topic, text: playerText });
+                        this.conversationLog.push({ time: new Date().toLocaleTimeString(), speaker: char.name, partner: 'Player', topic, text });
+                        if (this.conversationLog.length>300) this.conversationLog.splice(0, this.conversationLog.length-300);
+                    }
+                    // Charakter-Memory ergänzen
+                    char.memories = char.memories || [];
+                    char.memories.push({ type:'conversation', with:'Player', topic, playerUtterance: playerText, reply:text, time: Date.now(), summary: playerText.slice(0,60) });
+                }
+            } catch(err){
+                console.warn('Player chat NaturalConversation fallback wegen Fehler:', err);
+            }
+        }
+
         switch(matched){
             case 'greeting': text = this.buildGreeting(char, traitTone); break;
             case 'status': text = statusBits.length? `Ich bin gerade ${statusBits.join(', ')}.` : 'Alles im Rahmen.'; break;
@@ -4998,10 +5047,16 @@ class VillageAI {
         let meta = '';
         if (matched==='status' && statusBits.length) meta = 'Status: '+ statusBits.join(', ');
         // Follow-up Frage mit Wahrscheinlichkeit
+        // Optionale Follow-up Frage (nur einmaliger Block)
         if (Math.random()<0.35) {
             const follow = this.followUpQuestion(char, matched, statusBits);
             if (follow) text += ' '+follow;
         }
+        // Wenn wir NICHT das NaturalConversationSystem genutzt haben, kleine Zusatzchance auf Memory-Anspielung
+        if (!usedConversationSystem && Math.random()<0.35 && lastMemory) {
+            text += ' (Ich erinnere mich an '+ lastMemory.summary +')';
+        }
+        // Stimmung einfärben
         if (char.affect && char.affect.mood < -0.3) text = '(etwas genervt) '+text;
         if (char.affect && char.affect.mood > 0.45) text = '(gut gelaunt) '+text;
         return { text, meta };
