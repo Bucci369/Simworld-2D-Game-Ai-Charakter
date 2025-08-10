@@ -2599,6 +2599,9 @@ class VillageAI {
         // Reproduktions-System Update
         this.updateReproductionSystem();
         
+        // REALISTISCHES GESELLSCHAFTSSYSTEM
+        this.updateSocietyDynamics();
+        
         // Verwende for...of für async/await Unterstützung
         for (const character of this.characters) {
             // Feuer-Wärmeeinfluss vor Entscheidungen anwenden (passive Erwärmung)
@@ -4525,6 +4528,733 @@ class VillageAI {
         
         // Age characters
         this.ageCharacters();
+    }
+    
+    // REALISTISCHES GESELLSCHAFTSSYSTEM - "ULTRATHINK"
+    updateSocietyDynamics() {
+        const population = this.characters.length;
+        
+        // Initialisiere Gesellschaftssystem wenn nicht vorhanden
+        if (!this.society) {
+            this.society = {
+                factions: [],
+                conflicts: [],
+                tensions: new Map(),
+                warState: false,
+                dominantFaction: null,
+                socialOrder: 'peaceful', // peaceful, tensions, conflicts, war, post_war
+                lastConflictTime: 0,
+                eliminationCount: 0,
+                socialPressure: 0,
+                resourceCompetition: 0
+            };
+        }
+        
+        // FRAKTIONSBILDUNG ab 20 Bevölkerung
+        if (population >= 20 && this.society.factions.length === 0) {
+            this.emergeFactions();
+            console.log('🏛️ GESELLSCHAFTSWANDEL: Fraktionen entstehen bei 20+ Bevölkerung!');
+        }
+        
+        // Gesellschaftsdynamik nur mit Fraktionen
+        if (this.society.factions.length > 0) {
+            this.updateFactionDynamics();
+            this.updateSocialTensions();
+            this.processConflictEscalation();
+            this.updateSocialOrder();
+        }
+        
+        // Bevölkerungsstatistiken
+        this.updatePopulationStats();
+    }
+    
+    emergeFactions() {
+        console.log('🏛️ FRAKTIONSBILDUNG beginnt - Gesellschaft spaltet sich auf!');
+        
+        // Basis für Fraktionsbildung: Persönlichkeit + Geographie + Alter
+        const characters = [...this.characters];
+        
+        // Mögliche Fraktionstypen mit realistischen Konflikten
+        const factionTypes = [
+            { 
+                name: 'Die Traditionalisten', 
+                ideology: 'tradition',
+                color: '#8B4513',
+                values: ['fleiss', 'sozial'], 
+                enemyOf: ['progressives'],
+                description: 'Bewahren alte Wege und Traditionen'
+            },
+            { 
+                name: 'Die Progressiven', 
+                ideology: 'progress',
+                color: '#4169E1',
+                values: ['neugier', 'mut'], 
+                enemyOf: ['traditionalists'],
+                description: 'Streben nach Wandel und Innovation'
+            },
+            { 
+                name: 'Die Sammler-Elite', 
+                ideology: 'resource_control',
+                color: '#FFD700',
+                values: ['fleiss'], 
+                enemyOf: ['populists'],
+                description: 'Kontrollieren Ressourcen und Handel'
+            },
+            { 
+                name: 'Das Volk', 
+                ideology: 'equality',
+                color: '#DC143C',
+                values: ['sozial', 'mut'], 
+                enemyOf: ['elitists'],
+                description: 'Kämpfen für Gleichberechtigung'
+            },
+            { 
+                name: 'Die Isolationisten', 
+                ideology: 'isolation',
+                color: '#2F4F4F',
+                values: ['mut'], 
+                enemyOf: ['collectivists'],
+                description: 'Wollen Unabhängigkeit und Selbstbestimmung'
+            }
+        ];
+        
+        // 2-4 Fraktionen entstehen zufällig
+        const numFactions = 2 + Math.floor(Math.random() * 3);
+        const selectedFactionTypes = this.shuffleArray([...factionTypes]).slice(0, numFactions);
+        
+        selectedFactionTypes.forEach((factionType, index) => {
+            const faction = {
+                id: `faction_${index}`,
+                name: factionType.name,
+                ideology: factionType.ideology,
+                color: factionType.color,
+                description: factionType.description,
+                members: [],
+                leader: null,
+                resources: { food: 0, wood: 0, influence: 50 },
+                militaryStrength: 0,
+                territory: null,
+                hostilities: new Map(), // faction_id -> hostility level (0-100)
+                allies: [],
+                warDeclarations: [],
+                eliminated: false,
+                foundedTime: Date.now()
+            };
+            
+            this.society.factions.push(faction);
+        });
+        
+        // Charaktere den Fraktionen zuweisen
+        this.assignCharactersToFactions(characters);
+        
+        // Anführer wählen
+        this.selectFactionLeaders();
+        
+        // Territorien zuweisen
+        this.assignTerritories();
+        
+        // Initiale Spannungen zwischen natürlichen Feinden
+        this.initializeFactionHostilities();
+    }
+    
+    assignCharactersToFactions(characters) {
+        // Charaktere nach Persönlichkeit und Geographie zuteilen
+        const unassigned = [...characters];
+        
+        this.society.factions.forEach(faction => {
+            const idealMemberCount = Math.floor(characters.length / this.society.factions.length);
+            
+            // Finde Charaktere die zur Fraktionsideologie passen
+            const candidates = unassigned.filter(char => {
+                if (faction.ideology === 'tradition') {
+                    return char.traits.fleiss > 0.6 && char.age > 25;
+                } else if (faction.ideology === 'progress') {
+                    return char.traits.neugier > 0.6;
+                } else if (faction.ideology === 'resource_control') {
+                    return char.inventory.food > 20 || char.inventory.wood > 15;
+                } else if (faction.ideology === 'equality') {
+                    return char.traits.sozial > 0.6;
+                } else if (faction.ideology === 'isolation') {
+                    return char.traits.mut > 0.6 && char.traits.sozial < 0.4;
+                }
+                return true;
+            });
+            
+            // Nimm die besten Kandidaten oder zufällige wenn nicht genug
+            const membersToAdd = candidates.length >= idealMemberCount 
+                ? candidates.slice(0, idealMemberCount)
+                : candidates.concat(
+                    this.shuffleArray(unassigned.filter(c => !candidates.includes(c)))
+                        .slice(0, idealMemberCount - candidates.length)
+                );
+            
+            membersToAdd.forEach(char => {
+                faction.members.push(char.name);
+                char.faction = faction.id;
+                char.factionLoyalty = 60 + Math.random() * 30; // 60-90% initial loyalty
+                
+                // Entferne aus unassigned
+                const index = unassigned.indexOf(char);
+                if (index > -1) unassigned.splice(index, 1);
+            });
+        });
+        
+        // Reste zufällig verteilen
+        unassigned.forEach(char => {
+            const randomFaction = this.society.factions[Math.floor(Math.random() * this.society.factions.length)];
+            randomFaction.members.push(char.name);
+            char.faction = randomFaction.id;
+            char.factionLoyalty = 30 + Math.random() * 40; // 30-70% loyalty for latecomers
+        });
+        
+        console.log('👥 Fraktionsmitglieder zugewiesen:', this.society.factions.map(f => `${f.name}: ${f.members.length} Mitglieder`));
+    }
+    
+    selectFactionLeaders() {
+        this.society.factions.forEach(faction => {
+            const members = faction.members.map(name => this.characters.find(c => c.name === name));
+            
+            // Wähle Anführer basierend auf Eigenschaften
+            let bestCandidate = null;
+            let bestScore = -1;
+            
+            members.forEach(member => {
+                const score = 
+                    (member.traits.sozial * 0.4) + 
+                    (member.traits.mut * 0.3) + 
+                    (member.traits.fleiss * 0.2) + 
+                    (member.age > 25 ? 0.1 : 0);
+                    
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestCandidate = member;
+                }
+            });
+            
+            if (bestCandidate) {
+                faction.leader = bestCandidate.name;
+                bestCandidate.isLeader = true;
+                bestCandidate.factionLoyalty = 95; // Anführer sind sehr loyal
+                console.log(`👑 ${bestCandidate.name} führt jetzt ${faction.name}`);
+            }
+        });
+    }
+    
+    assignTerritories() {
+        // Jede Fraktion beansprucht ein Territorium
+        this.society.factions.forEach((faction, index) => {
+            const centerX = (index * (this.canvas.width / this.society.factions.length)) + (this.canvas.width / (this.society.factions.length * 2));
+            const centerY = this.canvas.height / 2;
+            
+            faction.territory = {
+                centerX: centerX,
+                centerY: centerY,
+                radius: 150,
+                controlStrength: 60 // 0-100%
+            };
+            
+            console.log(`🏴 ${faction.name} beansprucht Territorium bei (${Math.round(centerX)}, ${Math.round(centerY)})`);
+        });
+    }
+    
+    initializeFactionHostilities() {
+        // Setze initiale Feindschaften basierend auf Ideologien
+        const hostilityMap = {
+            'tradition': ['progress'],
+            'progress': ['tradition'],
+            'resource_control': ['equality'],
+            'equality': ['resource_control'],
+            'isolation': ['progress', 'equality']
+        };
+        
+        this.society.factions.forEach(faction1 => {
+            this.society.factions.forEach(faction2 => {
+                if (faction1 === faction2) return;
+                
+                const isNaturalEnemy = hostilityMap[faction1.ideology]?.includes(faction2.ideology);
+                const baseHostility = isNaturalEnemy ? 20 + Math.random() * 30 : Math.random() * 15;
+                
+                faction1.hostilities.set(faction2.id, baseHostility);
+            });
+        });
+        
+        console.log('⚔️ Initiale Fraktionsspannungen etabliert');
+    }
+    
+    updateFactionDynamics() {
+        this.society.factions.forEach(faction => {
+            if (faction.eliminated) return;
+            
+            // Update Militärische Stärke
+            faction.militaryStrength = faction.members.length * 10 + 
+                (faction.resources.wood * 0.5) + 
+                (faction.leader ? 20 : 0);
+            
+            // Update Ressourcen durch Mitglieder
+            let totalFood = 0, totalWood = 0;
+            faction.members.forEach(memberName => {
+                const member = this.characters.find(c => c.name === memberName);
+                if (member) {
+                    totalFood += member.inventory.food * 0.1; // 10% wird geteilt
+                    totalWood += member.inventory.wood * 0.1;
+                }
+            });
+            faction.resources.food += totalFood;
+            faction.resources.wood += totalWood;
+            
+            // Territorialkontrolle
+            this.updateTerritorialControl(faction);
+        });
+    }
+    
+    updateTerritorialControl(faction) {
+        let controlStrength = 0;
+        const territory = faction.territory;
+        
+        faction.members.forEach(memberName => {
+            const member = this.characters.find(c => c.name === memberName);
+            if (member) {
+                const distance = Math.hypot(member.x - territory.centerX, member.y - territory.centerY);
+                if (distance < territory.radius) {
+                    controlStrength += 10; // Jedes Mitglied im Territorium +10 Kontrolle
+                }
+            }
+        });
+        
+        territory.controlStrength = Math.min(100, controlStrength);
+    }
+    
+    updateSocialTensions() {
+        const now = Date.now();
+        
+        this.society.factions.forEach(faction1 => {
+            if (faction1.eliminated) return;
+            
+            this.society.factions.forEach(faction2 => {
+                if (faction1 === faction2 || faction2.eliminated) return;
+                
+                let tensionIncrease = 0;
+                
+                // RESSOURCENKONKURRENZ
+                const resourceDiff = (faction1.resources.food + faction1.resources.wood) - 
+                                   (faction2.resources.food + faction2.resources.wood);
+                if (Math.abs(resourceDiff) > 50) {
+                    tensionIncrease += 2; // Reiche vs Arme Spannungen
+                }
+                
+                // TERRITORIALE KONFLIKTE
+                const distance = Math.hypot(
+                    faction1.territory.centerX - faction2.territory.centerX,
+                    faction1.territory.centerY - faction2.territory.centerY
+                );
+                if (distance < faction1.territory.radius + faction2.territory.radius) {
+                    tensionIncrease += 3; // Überlappende Territorien
+                }
+                
+                // IDEOLOGISCHE UNTERSCHIEDE (bereits in initializeFactionHostilities)
+                const currentHostility = faction1.hostilities.get(faction2.id) || 0;
+                const newHostility = Math.min(100, currentHostility + tensionIncrease);
+                faction1.hostilities.set(faction2.id, newHostility);
+                
+                // KRITISCHE SCHWELLE
+                if (newHostility > 70 && Math.random() < 0.1) {
+                    this.triggerConflictEvent(faction1, faction2);
+                }
+            });
+        });
+    }
+    
+    triggerConflictEvent(faction1, faction2) {
+        const now = Date.now();
+        const hostility = faction1.hostilities.get(faction2.id);
+        
+        const conflictTypes = [
+            { type: 'verbal_dispute', threshold: 30, damage: 0 },
+            { type: 'resource_theft', threshold: 50, damage: 5 },
+            { type: 'border_skirmish', threshold: 70, damage: 15 },
+            { type: 'assassination_attempt', threshold: 85, damage: 25 },
+            { type: 'open_warfare', threshold: 95, damage: 40 }
+        ];
+        
+        const availableConflicts = conflictTypes.filter(c => hostility >= c.threshold);
+        if (availableConflicts.length === 0) return;
+        
+        const conflict = availableConflicts[availableConflicts.length - 1]; // Höchste verfügbare Eskalation
+        
+        const conflictEvent = {
+            id: `conflict_${now}`,
+            type: conflict.type,
+            factions: [faction1.id, faction2.id],
+            timestamp: now,
+            resolved: false,
+            casualties: 0,
+            outcome: null
+        };
+        
+        this.society.conflicts.push(conflictEvent);
+        
+        console.log(`⚔️ KONFLIKT: ${faction1.name} vs ${faction2.name} - ${conflict.type}`);
+        
+        // Führe Konflikt aus
+        this.executeConflict(conflictEvent, conflict);
+    }
+    
+    executeConflict(conflictEvent, conflictType) {
+        const faction1 = this.society.factions.find(f => f.id === conflictEvent.factions[0]);
+        const faction2 = this.society.factions.find(f => f.id === conflictEvent.factions[1]);
+        
+        if (!faction1 || !faction2 || faction1.eliminated || faction2.eliminated) return;
+        
+        switch(conflictType.type) {
+            case 'verbal_dispute':
+                this.executeVerbalDispute(faction1, faction2, conflictEvent);
+                break;
+            case 'resource_theft':
+                this.executeResourceTheft(faction1, faction2, conflictEvent);
+                break;
+            case 'border_skirmish':
+                this.executeBorderSkirmish(faction1, faction2, conflictEvent);
+                break;
+            case 'assassination_attempt':
+                this.executeAssassinationAttempt(faction1, faction2, conflictEvent);
+                break;
+            case 'open_warfare':
+                this.executeOpenWarfare(faction1, faction2, conflictEvent);
+                break;
+        }
+        
+        conflictEvent.resolved = true;
+        this.society.lastConflictTime = Date.now();
+    }
+    
+    executeVerbalDispute(faction1, faction2, conflictEvent) {
+        // Anführer diskutieren - keine Verluste aber Spannungen
+        console.log(`💬 ${faction1.name} und ${faction2.name} streiten öffentlich!`);
+        
+        const hostility1 = faction1.hostilities.get(faction2.id) + 5;
+        const hostility2 = faction2.hostilities.get(faction1.id) + 5;
+        
+        faction1.hostilities.set(faction2.id, Math.min(100, hostility1));
+        faction2.hostilities.set(faction1.id, Math.min(100, hostility2));
+        
+        conflictEvent.outcome = 'tensions_increased';
+    }
+    
+    executeResourceTheft(faction1, faction2, conflictEvent) {
+        // Fraktion 1 stiehlt Ressourcen von Fraktion 2
+        const stolenFood = Math.min(20, faction2.resources.food * 0.2);
+        const stolenWood = Math.min(15, faction2.resources.wood * 0.2);
+        
+        faction1.resources.food += stolenFood;
+        faction1.resources.wood += stolenWood;
+        faction2.resources.food = Math.max(0, faction2.resources.food - stolenFood);
+        faction2.resources.wood = Math.max(0, faction2.resources.wood - stolenWood);
+        
+        console.log(`🥷 ${faction1.name} stiehlt Ressourcen von ${faction2.name}!`);
+        
+        // Erhöhe Feindschaft drastisch
+        faction2.hostilities.set(faction1.id, Math.min(100, faction2.hostilities.get(faction1.id) + 15));
+        
+        conflictEvent.outcome = 'resources_stolen';
+    }
+    
+    executeBorderSkirmish(faction1, faction2, conflictEvent) {
+        // Kleiner Kampf mit möglichen Verlusten
+        console.log(`⚔️ GRENZKONFLIKT: ${faction1.name} vs ${faction2.name}!`);
+        
+        const strength1 = faction1.militaryStrength + Math.random() * 20;
+        const strength2 = faction2.militaryStrength + Math.random() * 20;
+        
+        let casualties = 0;
+        
+        if (strength1 > strength2 * 1.2) {
+            // Faction1 gewinnt deutlich
+            casualties = this.eliminateRandomMembers(faction2, 1);
+            conflictEvent.outcome = `${faction1.name}_victory`;
+            console.log(`🏆 ${faction1.name} gewinnt den Grenzkonflikt!`);
+        } else if (strength2 > strength1 * 1.2) {
+            // Faction2 gewinnt deutlich  
+            casualties = this.eliminateRandomMembers(faction1, 1);
+            conflictEvent.outcome = `${faction2.name}_victory`;
+            console.log(`🏆 ${faction2.name} gewinnt den Grenzkonflikt!`);
+        } else {
+            // Patt - beide leiden
+            casualties = this.eliminateRandomMembers(faction1, 1) + this.eliminateRandomMembers(faction2, 1);
+            conflictEvent.outcome = 'mutual_losses';
+            console.log(`💀 Beide Fraktionen erleiden Verluste im Grenzkonflikt!`);
+        }
+        
+        conflictEvent.casualties = casualties;
+        this.society.eliminationCount += casualties;
+    }
+    
+    executeAssassinationAttempt(faction1, faction2, conflictEvent) {
+        // Versuch den feindlichen Anführer zu eliminieren
+        console.log(`🗡️ ${faction1.name} versucht ${faction2.name} Anführer zu eliminieren!`);
+        
+        const leader = this.characters.find(c => c.name === faction2.leader);
+        const success = Math.random() < 0.3; // 30% Erfolgsrate
+        
+        if (success && leader) {
+            console.log(`☠️ ATTENTAT ERFOLGREICH: ${leader.name} wurde eliminiert!`);
+            this.eliminateCharacter(leader);
+            this.selectNewLeader(faction2);
+            conflictEvent.outcome = 'assassination_successful';
+            conflictEvent.casualties = 1;
+            this.society.eliminationCount++;
+            
+            // Extreme Vergeltung
+            faction2.hostilities.set(faction1.id, 100);
+        } else {
+            console.log(`🛡️ Attentat auf ${faction2.leader} gescheitert!`);
+            conflictEvent.outcome = 'assassination_failed';
+            // Feindschaft steigt trotzdem
+            faction2.hostilities.set(faction1.id, Math.min(100, faction2.hostilities.get(faction1.id) + 25));
+        }
+    }
+    
+    executeOpenWarfare(faction1, faction2, conflictEvent) {
+        // Vollständiger Krieg zwischen Fraktionen
+        console.log(`🔥 KRIEG ERKLÄRT: ${faction1.name} vs ${faction2.name}!`);
+        this.society.warState = true;
+        this.society.socialOrder = 'war';
+        
+        const strength1 = faction1.militaryStrength;
+        const strength2 = faction2.militaryStrength;
+        
+        console.log(`⚔️ Militärstärken: ${faction1.name}(${strength1}) vs ${faction2.name}(${strength2})`);
+        
+        let totalCasualties = 0;
+        
+        // Mehrere Kampfrunden
+        for (let round = 0; round < 3; round++) {
+            const roundStrength1 = strength1 * (0.8 + Math.random() * 0.4);
+            const roundStrength2 = strength2 * (0.8 + Math.random() * 0.4);
+            
+            if (roundStrength1 > roundStrength2) {
+                const casualties = this.eliminateRandomMembers(faction2, 1 + Math.floor(Math.random() * 2));
+                totalCasualties += casualties;
+                console.log(`💀 Runde ${round + 1}: ${faction2.name} verliert ${casualties} Mitglieder`);
+            } else {
+                const casualties = this.eliminateRandomMembers(faction1, 1 + Math.floor(Math.random() * 2));
+                totalCasualties += casualties;
+                console.log(`💀 Runde ${round + 1}: ${faction1.name} verliert ${casualties} Mitglieder`);
+            }
+            
+            // Prüfe ob Fraktion eliminiert wurde
+            if (faction1.members.length === 0) {
+                this.eliminateFaction(faction1);
+                conflictEvent.outcome = `${faction2.name}_total_victory`;
+                break;
+            } else if (faction2.members.length === 0) {
+                this.eliminateFaction(faction2);
+                conflictEvent.outcome = `${faction1.name}_total_victory`;
+                break;
+            }
+        }
+        
+        conflictEvent.casualties = totalCasualties;
+        this.society.eliminationCount += totalCasualties;
+        
+        // Prüfe Siegbedingung
+        this.checkVictoryConditions();
+    }
+    
+    eliminateRandomMembers(faction, count) {
+        let eliminated = 0;
+        const eligibleMembers = faction.members.filter(name => name !== faction.leader);
+        
+        for (let i = 0; i < count && eligibleMembers.length > 0; i++) {
+            const randomIndex = Math.floor(Math.random() * eligibleMembers.length);
+            const memberName = eligibleMembers[randomIndex];
+            const character = this.characters.find(c => c.name === memberName);
+            
+            if (character) {
+                this.eliminateCharacter(character);
+                eliminated++;
+                eligibleMembers.splice(randomIndex, 1);
+            }
+        }
+        
+        return eliminated;
+    }
+    
+    eliminateCharacter(character) {
+        console.log(`☠️ ${character.name} wurde eliminiert!`);
+        
+        // Entferne aus Fraktion
+        const faction = this.society.factions.find(f => f.id === character.faction);
+        if (faction) {
+            const index = faction.members.indexOf(character.name);
+            if (index > -1) faction.members.splice(index, 1);
+        }
+        
+        // Entferne aus Charakterliste
+        const charIndex = this.characters.indexOf(character);
+        if (charIndex > -1) this.characters.splice(charIndex, 1);
+        
+        // Visuelle Todesmeldung
+        this.showSpeechBubble(character, {
+            text: "💀 Ich wurde eliminiert...",
+            type: 'meta',
+            duration: 3000
+        });
+    }
+    
+    selectNewLeader(faction) {
+        if (faction.members.length === 0) return;
+        
+        const members = faction.members.map(name => this.characters.find(c => c.name === name));
+        let bestCandidate = null;
+        let bestScore = -1;
+        
+        members.forEach(member => {
+            if (!member) return;
+            const score = (member.traits.sozial * 0.4) + (member.traits.mut * 0.3) + (member.factionLoyalty / 100 * 0.3);
+            if (score > bestScore) {
+                bestScore = score;
+                bestCandidate = member;
+            }
+        });
+        
+        if (bestCandidate) {
+            faction.leader = bestCandidate.name;
+            bestCandidate.isLeader = true;
+            console.log(`👑 ${bestCandidate.name} ist neuer Anführer von ${faction.name}`);
+        }
+    }
+    
+    eliminateFaction(faction) {
+        faction.eliminated = true;
+        faction.members = [];
+        faction.leader = null;
+        
+        console.log(`🏴 FRAKTION ELIMINIERT: ${faction.name} wurde vollständig zerstört!`);
+        
+        // Territorium wird frei
+        faction.territory.controlStrength = 0;
+    }
+    
+    checkVictoryConditions() {
+        const activeFactions = this.society.factions.filter(f => !f.eliminated && f.members.length > 0);
+        
+        if (activeFactions.length === 1) {
+            const winner = activeFactions[0];
+            this.society.dominantFaction = winner.id;
+            this.society.socialOrder = 'post_war';
+            this.society.warState = false;
+            
+            console.log(`🏆 SIEG! ${winner.name} hat alle anderen Fraktionen besiegt!`);
+            console.log(`👥 Überlebende Bevölkerung: ${this.characters.length}/${this.society.eliminationCount + this.characters.length} (${this.society.eliminationCount} eliminiert)`);
+            
+            // Globale Siegmeldung
+            this.characters.forEach(survivor => {
+                this.showSpeechBubble(survivor, {
+                    text: `Wir haben gewonnen! ${winner.name} herrscht!`,
+                    type: 'planning',
+                    duration: 8000
+                });
+            });
+            
+            return true;
+        }
+        
+        return false;
+    }
+    
+    processConflictEscalation() {
+        // Prüfe globale Spannungen und eskaliere
+        if (this.society.factions.length < 2) return;
+        
+        let totalTensions = 0;
+        let tensionCount = 0;
+        
+        this.society.factions.forEach(faction1 => {
+            if (faction1.eliminated) return;
+            this.society.factions.forEach(faction2 => {
+                if (faction1 === faction2 || faction2.eliminated) return;
+                totalTensions += faction1.hostilities.get(faction2.id) || 0;
+                tensionCount++;
+            });
+        });
+        
+        const averageTension = tensionCount > 0 ? totalTensions / tensionCount : 0;
+        this.society.socialPressure = averageTension;
+        
+        // Automatische Konflikteskalation
+        if (averageTension > 80 && !this.society.warState && Math.random() < 0.2) {
+            this.triggerGlobalConflict();
+        }
+    }
+    
+    triggerGlobalConflict() {
+        console.log('🔥 GLOBALER KONFLIKT: Alle Fraktionen im Krieg!');
+        this.society.warState = true;
+        this.society.socialOrder = 'war';
+        
+        // Alle Fraktionen kämpfen gegeneinander
+        const activeFactions = this.society.factions.filter(f => !f.eliminated);
+        
+        for (let i = 0; i < activeFactions.length; i++) {
+            for (let j = i + 1; j < activeFactions.length; j++) {
+                const faction1 = activeFactions[i];
+                const faction2 = activeFactions[j];
+                
+                // Setze maximale Feindschaft
+                faction1.hostilities.set(faction2.id, 100);
+                faction2.hostilities.set(faction1.id, 100);
+                
+                // Triggere sofortigen Konflikt
+                if (Math.random() < 0.5) {
+                    this.triggerConflictEvent(faction1, faction2);
+                }
+            }
+        }
+    }
+    
+    updateSocialOrder() {
+        const activeFactions = this.society.factions.filter(f => !f.eliminated);
+        
+        if (activeFactions.length <= 1) {
+            this.society.socialOrder = 'post_war';
+            this.society.warState = false;
+        } else if (this.society.warState) {
+            this.society.socialOrder = 'war';
+        } else if (this.society.socialPressure > 60) {
+            this.society.socialOrder = 'conflicts';
+        } else if (this.society.socialPressure > 30) {
+            this.society.socialOrder = 'tensions';
+        } else {
+            this.society.socialOrder = 'peaceful';
+        }
+    }
+    
+    updatePopulationStats() {
+        if (!this.society.populationStats) {
+            this.society.populationStats = {
+                peak: this.characters.length,
+                current: this.characters.length,
+                eliminated: 0,
+                factionHistory: []
+            };
+        }
+        
+        this.society.populationStats.current = this.characters.length;
+        this.society.populationStats.eliminated = this.society.eliminationCount;
+        
+        if (this.characters.length > this.society.populationStats.peak) {
+            this.society.populationStats.peak = this.characters.length;
+        }
+    }
+    
+    // Hilfsfunktion
+    shuffleArray(array) {
+        const shuffled = [...array];
+        for (let i = shuffled.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+        }
+        return shuffled;
     }
     
     updateRelationships() {
