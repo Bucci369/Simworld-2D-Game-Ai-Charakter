@@ -925,9 +925,16 @@ class TribeAIMember:
             self._idle_stuck_timer = 0.0
         if not hasattr(self, '_last_productive_time'):
             self._last_productive_time = time.time()
+        if not hasattr(self, '_last_status_log'):
+            self._last_status_log = 0.0
 
         current_time = time.time()
         should_update_ai = (current_time - self.last_ai_update) > self.ai_update_interval
+        
+        # Log status only every 5 seconds
+        if current_time - self._last_status_log > 5.0:
+            logger.info(f"[AI-DEBUG] {self.member_id}: current_action={self.current_action}, assigned_task={self.assigned_task}")
+            self._last_status_log = current_time
 
         self.action_timer += dt
         self.conversation_cooldown = max(0, self.conversation_cooldown - dt)
@@ -960,7 +967,7 @@ class TribeAIMember:
         if self.is_leader:
             if not hasattr(self, '_last_task_broadcast'):
                 self._last_task_broadcast = 0.0
-            if current_time - self._last_task_broadcast > 3.0:
+            if current_time - self._last_task_broadcast > 10.0:
                 self._broadcast_tasks_to_idle_followers()
                 self._last_task_broadcast = current_time
 
@@ -1016,6 +1023,9 @@ class TribeAIMember:
         # Occasional training
         if random.random() < 0.01:
             self.neural_network.train_from_experience()
+            
+        # Wende Bewegung an
+        self.update_movement(dt)
 
     def _force_basic_task(self):
         """Fallback falls Untertan zu lange untätig ist"""
@@ -1048,12 +1058,11 @@ class TribeAIMember:
             return
         assigned_count = 0
         for follower in self.followers:
-            if (follower and (not follower.assigned_task or follower.assigned_task in ['rest', ''] or follower.current_action in [ActionType.IDLE, ActionType.WANDERING])):
+            if follower and follower.current_action in [ActionType.IDLE, ActionType.WANDERING]:
                 task = self._assign_task_to_follower(follower)
                 if task:
                     follower.assigned_task = task['type']
                     follower.task_priority = task['priority']
-                    # Sofort Aktion wechseln statt auf action_timer zu warten
                     mapping = {
                         'collect_wood': ActionType.WOOD_CHOPPING,
                         'collect_stone': ActionType.STONE_MINING,
@@ -1093,21 +1102,48 @@ class TribeAIMember:
         return np.clip(reward, -1.0, 2.0)
     
     def _change_action(self, new_action: ActionType):
-        """Wechsle zu neuer Aktion"""
+        """Wechsle zu neuer Aktion mit Überprüfung auf unnötige Wechsel"""
+        old_action = self.current_action
+        
+        # Vermeide unnötige Aktionswechsel
+        if old_action == new_action:
+            return
+            
+        # Prüfe Action Change Cooldown
+        current_time = time.time()
+        if not hasattr(self, '_last_action_change'):
+            self._last_action_change = 0
+        if current_time - self._last_action_change < 1.0:  # Mindestens 1 Sekunde zwischen Wechseln
+            return
+            
         self.current_action = new_action
-        # DEAKTIVIERE target_zone für natürliche Bewegung - keine erzwungenen Zonen
-        # self.target_zone = self.territory.get_zone_for_action(new_action)
+        self._last_action_change = current_time
         self.target_zone = None
         
-        # Log der Entscheidung
-        self.memory.decisions.append({
-            'action': new_action.value,
-            'timestamp': datetime.now().timestamp(),
-            'reason': 'ai_decision'
-        })
-        
-        logger.info(f"🎯 {self.member_id}: Neue Aktion - {new_action.value}")
+        # Log nur wichtige Änderungen
+        if old_action != new_action:
+            self.memory.decisions.append({
+                'action': new_action.value,
+                'timestamp': current_time,
+                'reason': 'ai_decision'
+            })
+            
+            # Log nur wenn sich die Aktion wirklich ändert
+            if str(old_action) != str(new_action):
+                logger.info(f"🔄 {self.member_id}: {old_action} → {new_action}")
+                
+            # Spezielle Logs für bestimmte Aktionen
+            if new_action in [ActionType.WOOD_CHOPPING, ActionType.STONE_MINING]:
+                logger.info(f"⚒️ {self.member_id}: Beginnt {new_action.value}")
     
+    def update_movement(self, dt: float):
+        """Aktualisiert die Position basierend auf der aktuellen Geschwindigkeit."""
+        if self.velocity.length() > 0:
+            self.position += self.velocity * dt
+            if hasattr(self, 'rect'):
+                self.rect.topleft = self.position
+            self._update_sprite_direction()
+
     def _execute_current_action(self, dt: float, nearby_members: List, world_state: Dict[str, Any]):
         """Führe aktuelle Aktion aus"""
         
@@ -1250,15 +1286,40 @@ class TribeAIMember:
             target_tree = self._find_nearest_resource('wood')
             
             if target_tree:
-                # Gehe zum Baum
-                self._move_to_resource(target_tree)
+                # Aktuelle Position und Ziel als Vektoren
+                my_pos = pygame.Vector2(self.position)
+                tree_pos = pygame.Vector2(target_tree.x, target_tree.y)
+                distance = (tree_pos - my_pos).length()
                 
-                # Baue ab wenn nah genug - REALISTISCH LANGSAM
-                distance = abs(target_tree.x - self.position.x) + abs(target_tree.y - self.position.y)
-                if distance < 60:
+                if distance > 60:  # Zu weit weg -> Gehe zum Baum
+                    self._move_to_resource(target_tree)
+                    if not hasattr(self, '_last_move_log'):
+                        self._last_move_log = 0
+                    if time.time() - self._last_move_log > 2.0:
+                        logger.info(f"🚶 {self.member_id} bewegt sich zu Baum (Distanz: {distance:.0f})")
+                        self._last_move_log = time.time()
+                else:  # Nah genug -> Fälle Baum
                     # Arbeits-Timer für realistische Geschwindigkeit
                     if not hasattr(self, '_work_timer'):
                         self._work_timer = 0
+                        logger.info(f"⛏️ {self.member_id} beginnt mit dem Holzfällen")
+                    
+                    if not hasattr(self, '_last_work_log'):
+                        self._last_work_log = 0
+                    
+                    # Fortschritt beim Holzfällen
+                    self._work_timer += 1
+                    if time.time() - self._last_work_log > 5.0:
+                        logger.info(f"🪓 {self.member_id} fällt weiter Holz... ({self._work_timer}/100)")
+                        self._last_work_log = time.time()
+                        
+                    # Holz sammeln wenn fertig
+                    if self._work_timer >= 100:
+                        if target_tree:
+                            self._tribe_system.tree_system.remove_tree(target_tree)
+                            self.inventory.add_item('wood', 1)
+                            logger.info(f"✅ {self.member_id} hat erfolgreich Holz gesammelt!")
+                        self._work_timer = 0  # Reset für nächsten Baum
                     
                     self._work_timer += 0.016  # dt (~60fps)
                     
@@ -1315,52 +1376,47 @@ class TribeAIMember:
             target_resource = self._find_nearest_resource('stone')
             
             if target_resource:
-                # Gehe zur Ressource
-                self._move_to_resource(target_resource)
+                # Aktuelle Position und Ziel als Vektoren
+                my_pos = pygame.Vector2(self.position)
+                stone_pos = pygame.Vector2(target_resource.x, target_resource.y)
+                distance = (stone_pos - my_pos).length()
                 
-                # Baue ab wenn nah genug - REALISTISCH LANGSAM
-                distance = abs(target_resource.x - self.position.x) + abs(target_resource.y - self.position.y)
-                if distance < 60:
-                    # Arbeits-Timer für realistische Geschwindigkeit (getrennt vom wood_timer)
+                if distance > 60:  # Zu weit weg -> Gehe zur Ressource
+                    self._move_to_resource(target_resource)
+                    if not hasattr(self, '_last_move_log'):
+                        self._last_move_log = 0
+                    if time.time() - self._last_move_log > 2.0:
+                        logger.info(f"🚶 {self.member_id} bewegt sich zu Stein (Distanz: {distance:.0f})")
+                        self._last_move_log = time.time()
+                else:  # Nah genug -> Baue Stein ab
+                    # Arbeits-Timer für realistische Geschwindigkeit
                     if not hasattr(self, '_mining_timer'):
                         self._mining_timer = 0
+                        logger.info(f"⛏️ {self.member_id} beginnt mit dem Steinabbau")
                     
-                    self._mining_timer += 0.016  # dt (~60fps)
-                    
-                    # Arbeitsintervall basierend auf Spezialisierung
-                    efficiency = self._get_job_efficiency('stone_mining')
-                    base_interval = random.uniform(3.0, 4.5)  # Steinabbau dauert länger als Holz
-                    mining_interval = base_interval / efficiency  # Höhere Effizienz = schneller
-                    
-                    if self._mining_timer >= mining_interval:
-                        # Reset timer für nächsten Schlag
-                        self._mining_timer = 0
+                    # Arbeits-Timer für realistischen Fortschritt
+                    self._mining_timer += 1
+                    if not hasattr(self, '_last_work_log'):
+                        self._last_work_log = 0
                         
-                        # Schade der Ressource (simuliere Angriff)
-                        depleted, drop_pos = target_resource.take_damage(1)  # 1 Schaden pro Schlag
+                    if time.time() - self._last_work_log > 5.0:
+                        logger.info(f"⛏️ {self.member_id} baut weiter Stein ab... ({self._mining_timer}/150)")
+                        self._last_work_log = time.time()
+                        
+                    # Stein sammeln wenn fertig
+                    if self._mining_timer >= 150:  # Steinabbau dauert länger als Holz
+                        if target_resource:
+                            self._tribe_system.mining_system.remove_resource(target_resource)
+                            self.inventory.add_item('stone', 1)
+                            logger.info(f"✅ {self.member_id} hat erfolgreich Stein gesammelt!")
+                        self._mining_timer = 0  # Reset für nächsten Stein
                         self._add_work_fatigue(0.12)  # Bergbau ist anstrengender als Holzfällen
                         
-                        if depleted or drop_pos:  # Ressource vollständig abgebaut oder Drop erhalten
-                            stone_collected = random.randint(1, 3)  # Stein/Erz erhalten
-                            self._collect_resource('stone', stone_collected)  # 📦 NEUES SYSTEM
-                            self.energy = max(0.1, self.energy - 0.06)
-                            
-                            if self.is_leader:
-                                logger.info(f"⛏️ Anführer {self.member_id} baut {target_resource.resource_type} ab (+{stone_collected})")
-                            else:
-                                logger.info(f"⛏️ Untertan {self.member_id} baut {target_resource.resource_type} ab (+{stone_collected})")
-                            
-                            # Nach dem Abbau: Suche neue Ressource oder mache Pause
-                            self._set_goal('find_stone')
-                        elif target_resource.alive:
-                            # Ressource nur beschädigt, nicht abgebaut
-                            if self.is_leader:
-                                logger.info(f"⛏️ Anführer {self.member_id} schlägt {target_resource.resource_type} (HP: {target_resource.current_hp})")
-                            else:
-                                logger.info(f"⛏️ Untertan {self.member_id} schlägt {target_resource.resource_type} (HP: {target_resource.current_hp})")
-                        self.energy = max(0.1, self.energy - 0.02)
+                        # Ressource wurde erfolgreich abgebaut - suche neue
+                        self.energy = max(0.1, self.energy - 0.06)
+                        self._set_goal('find_stone')
             else:
-                # Keine Ressource gefunden - erkunde umher
+                # Keine Ressource gefunden - suche weiter
                 if not self.is_leader:
                     self._wander_to_find_resources('stone')
         
@@ -1453,6 +1509,12 @@ class TribeAIMember:
                 self.velocity += avoidance_vector * 20  # Sanfte Korrektur
     
     def _leader_free_movement(self):
+        """Setzt die Geschwindigkeit für freie Bewegung (Wandern)."""
+        if not hasattr(self, '_wander_timer') or self._wander_timer <= 0:
+            self._wander_timer = random.uniform(2, 5)
+            angle = random.uniform(0, 360)
+            self.velocity = pygame.Vector2(1, 0).rotate(angle) * self.max_speed * 0.5
+
         """Anführer bewegt sich frei und langsam"""
         # Wähle neues Ziel alle 5-10 Sekunden
         if not hasattr(self, '_movement_timer'):
@@ -1506,55 +1568,106 @@ class TribeAIMember:
                 self._update_sprite_direction()
     
     def _find_nearest_resource(self, resource_type: str):
-        """Finde nächste verfügbare Ressource mit Arbeitsplatz-Management"""
+        """Finde nächste verfügbare Ressource mit besserer Distanzberechnung"""
         if not hasattr(self, '_tribe_system'):
             return None
+            
+        # Initialisiere Such-Timer wenn nötig
+        if not hasattr(self, '_last_resource_search'):
+            self._last_resource_search = {}
+        if resource_type not in self._last_resource_search:
+            self._last_resource_search[resource_type] = 0
+            
+        # Verhindere zu häufige Suchen
+        current_time = time.time()
+        if current_time - self._last_resource_search[resource_type] < 2.0:  # Nur alle 2 Sekunden suchen
+            return None
+            
+        self._last_resource_search[resource_type] = current_time
         
         search_radius = 1200  # größerer Radius
         available_resources = []
+        my_pos = pygame.Vector2(self.position)
 
         if resource_type == 'wood' and hasattr(self._tribe_system, 'tree_system'):
             for tree in self._tribe_system.tree_system.trees:
                 if tree.alive:
-                    distance = abs(tree.x - self.position.x) + abs(tree.y - self.position.y)
+                    tree_pos = pygame.Vector2(tree.x, tree.y)
+                    distance = (tree_pos - my_pos).length()
                     if distance <= search_radius:
                         available_resources.append((tree, distance))
+                        
         elif resource_type == 'stone' and hasattr(self._tribe_system, 'mining_system'):
             for res in self._tribe_system.mining_system.resources:
-                if res.alive:
-                    distance = abs(res.x - self.position.x) + abs(res.y - self.position.y)
+                if res.alive and res.resource_type == 'stone':
+                    res_pos = pygame.Vector2(res.x, res.y)
+                    distance = (res_pos - my_pos).length()
                     if distance <= search_radius:
+                        available_resources.append((res, distance))
                         available_resources.append((res, distance))
 
         if not available_resources:
+            if not hasattr(self, '_last_search_fail_log'):
+                self._last_search_fail_log = {}
+            if resource_type not in self._last_search_fail_log:
+                self._last_search_fail_log[resource_type] = 0
+                
+            # Log nur alle 5 Sekunden wenn keine Ressource gefunden
+            if current_time - self._last_search_fail_log.get(resource_type, 0) > 5.0:
+                logger.info(f"🔍 {self.member_id}: Keine {resource_type}-Ressourcen in Reichweite (Radius: {search_radius})")
+                self._last_search_fail_log[resource_type] = current_time
             return None
 
-        # Sortiere alle (nicht nur streng näher) nach Entfernung
+        # Sortiere nach Entfernung und wähle die 3 nächsten
         available_resources.sort(key=lambda x: x[1])
-
-        # Versuche sukzessiv eine Ressource zu claimen
-        for resource, distance in available_resources:
-            if self._tribe_system._assign_worker_to_resource(self.member_id, resource):
-                return resource
+        closest_resources = available_resources[:3]
+        
+        # Wähle zufällig eine der 3 nächsten (verhindert, dass alle zum selben Ziel gehen)
+        selected_resource, distance = random.choice(closest_resources)
+        
+        if self._tribe_system._assign_worker_to_resource(self.member_id, selected_resource):
+            logger.info(f"🎯 {self.member_id}: {resource_type}-Ressource gefunden (Distanz: {distance:.0f})")
+            return selected_resource
+            
+        # Log wenn keine Ressource zugewiesen werden konnte
+        if not hasattr(self, '_last_assignment_fail_log'):
+            self._last_assignment_fail_log = 0
+        if current_time - self._last_assignment_fail_log > 5.0:
+            logger.info(f"❌ {self.member_id}: Keine freie {resource_type}-Ressource verfügbar")
+            self._last_assignment_fail_log = current_time
         return None
     
     def _move_to_resource(self, resource):
-        """Bewege dich aktiv zu einer Ressource oder einem anderen NPC"""
-        # Unterscheide zwischen Ressourcen (.x/.y) und NPCs (.position.x/.position.y)
-        if hasattr(resource, 'position'):  # NPC (wie Anführer)
+        """Setzt die Geschwindigkeit, um sich zu einer Ressource oder einem NPC zu bewegen."""
+        if hasattr(resource, 'position'):
             target_pos = pygame.Vector2(resource.position.x, resource.position.y)
-        else:  # Ressource (Baum, Stein)
-            target_pos = pygame.Vector2(resource.x, resource.y)
-        
-        direction = target_pos - self.position
-        
-        if direction.length() > 20:  # Noch nicht da
-            direction = direction.normalize()
-            self.velocity = direction * self.max_speed * 0.8  # Schnelle Bewegung zum Ziel
-            self.position += self.velocity * 0.016
-            self._update_sprite_direction()
         else:
-            self.velocity = pygame.Vector2(0, 0)  # Stoppe beim Ziel
+            target_pos = pygame.Vector2(resource.x, resource.y)
+
+        if not hasattr(self, '_last_movement_log'):
+            self._last_movement_log = 0
+
+        current_pos = pygame.Vector2(self.position)
+        direction = target_pos - current_pos
+        distance = direction.length()
+
+        if distance > 20:
+            direction = direction.normalize()
+            self.velocity = direction * self.max_speed
+            if time.time() - self._last_movement_log > 1.0:
+                logger.info(f"🚶 {self.member_id}: Bewegt sich zu {resource.__class__.__name__} (Distanz: {distance:.0f})")
+                self._last_movement_log = time.time()
+        else:
+            self.velocity = pygame.Vector2(0, 0)
+            if not hasattr(self, '_arrived_logged'):
+                logger.info(f"🎯 {self.member_id}: An Ressource angekommen ({resource.__class__.__name__})")
+                self._arrived_logged = True
+            dt = 0.016  # ~60fps
+            new_pos = current_pos + (self.velocity * dt)
+            
+            # Aktualisiere die Position und Rect
+            self.position = pygame.Vector2(new_pos)  # Konvertiere zu Vector2
+
     
     def _wander_to_find_resources(self, resource_type: str):
         """Wandere umher um Ressourcen zu finden"""
@@ -1620,6 +1733,13 @@ class TribeAIMember:
     
     def _handle_house_building(self, world_state: Dict[str, Any]):
         """Autonomer Hausbau"""
+        # Initialisiere Timer für Ressourcen-Check
+        if not hasattr(self, '_last_resource_check'):
+            self._last_resource_check = 0
+            self._resource_check_interval = 5.0  # Prüfe alle 5 Sekunden
+            
+        current_time = time.time()
+        
         # Gehe zum Bauplatz (beim Anführer)
         if not self.is_leader and self.leader_id:
             leader = self._find_leader()
@@ -1630,13 +1750,20 @@ class TribeAIMember:
             # Anführer bleiben am Bauplatz
             self._leader_free_movement()
         
+        # Prüfe Ressourcen nur periodisch
+        if current_time - self._last_resource_check < self._resource_check_interval:
+            return
+            
+        self._last_resource_check = current_time
+        
         # Prüfe Ressourcen nur vom eigenen Volk
         own_tribe_members = []
         if hasattr(self, '_tribe_system'):
             own_tribe_members = [m for m in self._tribe_system.members if m.tribe_color == self.tribe_color]
         
-        total_wood = sum(m.memory.resources_collected['wood'] for m in own_tribe_members)
-        total_stone = sum(m.memory.resources_collected['stone'] for m in own_tribe_members)
+        # Berechne gesammelte Ressourcen aus dem memory
+        total_wood = sum(m.memory.resources_collected.get('wood', 0) for m in own_tribe_members)
+        total_stone = sum(m.memory.resources_collected.get('stone', 0) for m in own_tribe_members)
         
         # Jedes Volk baut sein eigenes Haus - verschiedene Anforderungen
         if self.tribe_color == 'red':
@@ -1648,6 +1775,11 @@ class TribeAIMember:
         else:  # green
             wood_needed = 20   # Grünes Volk: Steinburgen (mehr Stein)
             stone_needed = 40
+            
+        # Log Ressourcenstatus nur wenn sich was geändert hat
+        if not hasattr(self, '_last_wood') or not hasattr(self, '_last_stone') or \
+           self._last_wood != total_wood or self._last_stone != total_stone:
+            logger.info(f"🏗️ {self.member_id}: Hausbau-Status - {total_wood}/{wood_needed} Holz, {total_stone}/{stone_needed} Stein")
         
         # Jedes Volk hat seinen eigenen Hausbau-Progress
         house_key = f'house_progress_{self.tribe_color}'
@@ -1736,7 +1868,7 @@ class TribeAIMember:
             'from_leader': leader_id,
             'timestamp': time.time()
         })
-        # Übersetze Command direkt in assigned_task + Action (sofortige Wirkung)
+        # Übersetze Command in assigned_task und wechsle Aktion wenn sich der Befehl geändert hat
         mapping = {
             'wood_chopping': ('collect_wood', ActionType.WOOD_CHOPPING),
             'stone_mining': ('collect_stone', ActionType.STONE_MINING),
@@ -1744,11 +1876,20 @@ class TribeAIMember:
             'rest': ('rest', ActionType.IDLE)
         }
         if command in mapping:
-            self.assigned_task, action = mapping[command]
-            # Nur wechseln wenn wir gerade nichts wichtiges machen oder idle/wandern
-            if self.current_action in [ActionType.IDLE, ActionType.WANDERING, ActionType.GUARD_DUTY, ActionType.GATHERING]:
-                self._change_action(action)
-        logger.info(f"📝 Untertan {self.member_id} erhielt Befehl: {command} von Anführer {leader_id}")
+            new_task, new_action = mapping[command]
+            # Wechsle Aktion wenn:
+            # 1. NPC ist untätig (IDLE/WANDERING) ODER
+            # 2. Der neue Befehl fordert eine andere Aktion als die aktuelle
+            if (self.current_action in [ActionType.IDLE, ActionType.WANDERING] or 
+                (self.current_action != new_action and new_action != ActionType.IDLE)):
+                self.assigned_task = new_task
+                self._change_action(new_action)
+                logger.info(f"🔄 {self.member_id}: Wechsel von {self.current_action} zu {new_action} auf Befehl von {leader_id}")
+            else:
+                self.assigned_task = new_task
+                logger.info(f"📝 {self.member_id}: Befehl {command} empfangen (bleibt bei {self.current_action})")
+        else:
+            logger.info(f"📝 Untertan {self.member_id} erhielt Befehl: {command} von Anführer {leader_id}")
     
     def _move_to_zone(self, dt: float, target_zone: pygame.Rect):
         """Bewege zu Ziel-Zone"""
@@ -1906,29 +2047,67 @@ class TribeAISystem:
         return f"{resource.resource_type if hasattr(resource, 'resource_type') else 'tree'}_{resource.x}_{resource.y}"
     
     def _assign_worker_to_resource(self, worker_id: str, resource) -> bool:
-        """Weise einen Arbeiter einer Ressource zu, falls Platz vorhanden"""
+        """Weise einen Arbeiter einer Ressource zu mit dynamischer Arbeiterzuweisung"""
         resource_id = self._get_resource_id(resource)
         
+        # Initialisiere Arbeitsplatz wenn nötig
+        if not hasattr(self, 'workplace_assignments'):
+            self.workplace_assignments = {}
         if resource_id not in self.workplace_assignments:
             self.workplace_assignments[resource_id] = []
+            
+        # Entferne inaktive Arbeiter
+        current_time = time.time()
+        self.workplace_assignments[resource_id] = [
+            w for w in self.workplace_assignments[resource_id]
+            if hasattr(self, f'_last_work_{w}') and 
+            current_time - getattr(self, f'_last_work_{w}') < 10.0  # Timeout nach 10 Sekunden
+        ]
+        
+        # Dynamische Arbeiterzuweisung basierend auf Ressourcentyp
+        if hasattr(resource, 'resource_type'):
+            if resource.resource_type == 'stone':
+                max_workers = 3  # Mehr Arbeiter für Stein
+            else:
+                max_workers = 2  # Weniger für andere Ressourcen
+        else:
+            max_workers = 2
         
         # Prüfe ob bereits zu viele Arbeiter
-        if len(self.workplace_assignments[resource_id]) >= self.max_workers_per_resource:
+        if len(self.workplace_assignments[resource_id]) >= max_workers:
             return False
+            
+        # Aktualisiere Arbeitszeitstempel
+        setattr(self, f'_last_work_{worker_id}', current_time)
         
-        # Prüfe ob Arbeiter bereits zugewiesen
-        if worker_id in self.workplace_assignments[resource_id]:
-            return True  # Bereits zugewiesen
-        
-        # Weise Arbeiter zu
-        self.workplace_assignments[resource_id].append(worker_id)
+        # Weise Arbeiter zu wenn noch nicht zugewiesen
+        if worker_id not in self.workplace_assignments[resource_id]:
+            self.workplace_assignments[resource_id].append(worker_id)
+            logger.info(f"👷 {worker_id}: Neue Ressource zugewiesen ({len(self.workplace_assignments[resource_id])}/{max_workers} Arbeiter)")
+            
         return True
     
     def _release_worker_from_resource(self, worker_id: str, resource):
-        """Entferne einen Arbeiter von einer Ressource"""
+        """Entferne einen Arbeiter von einer Ressource mit Logging"""
+        if not hasattr(self, 'workplace_assignments'):
+            return
+            
         resource_id = self._get_resource_id(resource)
-        
-        if resource_id in self.workplace_assignments:
+        if resource_id not in self.workplace_assignments:
+            return
+            
+        # Entferne Arbeiter wenn zugewiesen
+        if worker_id in self.workplace_assignments[resource_id]:
+            self.workplace_assignments[resource_id].remove(worker_id)
+            logger.info(f"👋 {worker_id}: Von Ressource entfernt ({len(self.workplace_assignments[resource_id])} Arbeiter übrig)")
+            
+        # Entferne leere Einträge
+        if not self.workplace_assignments[resource_id]:
+            del self.workplace_assignments[resource_id]
+            
+        # Entferne Arbeitszeitstempel
+        if hasattr(self, f'_last_work_{worker_id}'):
+            delattr(self, f'_last_work_{worker_id}')
             if worker_id in self.workplace_assignments[resource_id]:
                 self.workplace_assignments[resource_id].remove(worker_id)
                 
