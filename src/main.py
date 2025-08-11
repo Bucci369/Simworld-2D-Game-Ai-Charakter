@@ -533,11 +533,12 @@ class Game:
         # Immer 2D-NPCs verwenden (Performance-optimiert)
         self.use_3d_npcs = False
         
-        # Spawne 8 NPCs in der Nähe des Spielers
+        # Spawne 8 intelligente NPCs in der Nähe des Spielers
         npc_spawn_x = spawn_x // TILE_SIZE + 5  # 5 Tiles rechts vom Spieler
         npc_spawn_y = spawn_y // TILE_SIZE + 3  # 3 Tiles unter dem Spieler
         npc_spawn_area = (npc_spawn_x * TILE_SIZE, npc_spawn_y * TILE_SIZE)
-        self.npc_system.spawn_npc_group(npc_spawn_area, count=8, spread=80)
+        self.npc_system.spawn_intelligent_swarm(npc_spawn_area, count=8)
+        print("🎯 Intelligenter NPC-Schwarm mit Player-Sprites aktiviert!")
         
         # Versuche gespeicherte Welt zu laden
         self.auto_load_world()
@@ -952,8 +953,8 @@ class Game:
             # 3D-NPCs werden mit OpenGL gerendert (nach 2D-Rendering)
             pass  # 3D-Rendering erfolgt später
         else:
-            # Fallback: 2D-NPCs zeichnen
-            self.npc_system.draw_2d_fallback(world_surface, self.camera)
+            # Neue intelligente 2D-NPCs mit Player-Sprites zeichnen
+            self.npc_system.render(world_surface, self.camera)
         
         # === Finaler Screen Rendering ===
         # World Surface mit Zoom zum finalen Screen rendern
