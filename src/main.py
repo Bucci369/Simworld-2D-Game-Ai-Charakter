@@ -12,6 +12,7 @@ from hunger_system import HungerSystem
 from tree_system import TreeSystem
 from mining_system import MiningSystem
 from npc_system_simple import NPCSystem2D
+from tribe_ai_system import TribeAISystem  # Zurück zum Original System
 from pygame import KMOD_SHIFT
 
 # Debug Panel (lazy import of assets)
@@ -530,15 +531,29 @@ class Game:
         # NPC-System initialisieren (einfaches 2D-System)
         self.npc_system = NPCSystem2D(self.world if USE_SIMPLE_WORLD else None)
         
+        # 🧠 KI-Stamm-System initialisieren
+        self.tribe_ai_system = TribeAISystem(self.world if USE_SIMPLE_WORLD else None)
+        
         # Immer 2D-NPCs verwenden (Performance-optimiert)
         self.use_3d_npcs = False
+        self.use_ai_tribe = True  # Verwende KI-Stamm statt einfacher NPCs
         
-        # Spawne 8 intelligente NPCs in der Nähe des Spielers
-        npc_spawn_x = spawn_x // TILE_SIZE + 5  # 5 Tiles rechts vom Spieler
-        npc_spawn_y = spawn_y // TILE_SIZE + 3  # 3 Tiles unter dem Spieler
-        npc_spawn_area = (npc_spawn_x * TILE_SIZE, npc_spawn_y * TILE_SIZE)
-        self.npc_system.spawn_intelligent_swarm(npc_spawn_area, count=8)
-        print("🎯 Intelligenter NPC-Schwarm mit Player-Sprites aktiviert!")
+        # Spawne Position südlich des Sees (für Sichtbarkeit)
+        lake_center_x = spawn_x + 200  # Östlich vom Spieler
+        lake_center_y = spawn_y + 300  # Südlich vom Spieler
+        tribe_spawn_pos = (lake_center_x, lake_center_y)
+        
+        if self.use_ai_tribe:
+            # Erstelle KI-Stamm südlich des Sees
+            self.tribe_ai_system.create_tribe(tribe_spawn_pos, member_count=6)
+            print("🧠 KI-Stamm südlich des Sees erstellt!")
+        else:
+            # Fallback: Alte NPCs
+            npc_spawn_x = spawn_x // TILE_SIZE + 5
+            npc_spawn_y = spawn_y // TILE_SIZE + 3
+            npc_spawn_area = (npc_spawn_x * TILE_SIZE, npc_spawn_y * TILE_SIZE)
+            self.npc_system.spawn_intelligent_swarm(npc_spawn_area, count=8)
+            print("🎯 Intelligenter NPC-Schwarm mit Player-Sprites aktiviert!")
         
         # Versuche gespeicherte Welt zu laden
         self.auto_load_world()
@@ -697,6 +712,23 @@ class Game:
                 elif event.key == pygame.K_h:
                     # H = Hilfe für Zeit-Steuerung anzeigen
                     self.show_time_help()
+                elif event.key == pygame.K_i:
+                    # I = KI-Debug-Modus togglen
+                    if self.use_ai_tribe:
+                        self.tribe_ai_system.toggle_debug_mode()
+                        print("🧠 KI-Debug-Modus umgeschaltet!")
+                elif event.key == pygame.K_k:
+                    # K = KI-Statistiken anzeigen
+                    if self.use_ai_tribe:
+                        stats = self.tribe_ai_system.get_ai_stats()
+                        print(f"🧠 KI-Stats: {stats}")
+                elif event.key == pygame.K_t:
+                    # T = Teleportiere AI Members zum Player
+                    if self.tribe_ai_system:
+                        player_x = self.player.x
+                        player_y = self.player.y
+                        self.tribe_ai_system.teleport_members_to_player(player_x, player_y)
+                        print("🚁 AI Tribe Members zu dir teleportiert! (Taste T)")
                 elif event.key == pygame.K_c and USE_SIMPLE_WORLD:
                     # C = Clear (alle platzierten Objekte löschen)
                     if hasattr(self.world, 'clear_dynamic_objects'):
@@ -824,7 +856,14 @@ class Game:
         self.mining_system.update(dt)
         
         # NPC-System updaten
-        self.npc_system.update(dt)
+        if self.use_ai_tribe:
+            # Update KI-Stamm-System
+            player_world_pos = (self.player.rect.centerx, self.player.rect.centery)
+            self.tribe_ai_system.player_pos = player_world_pos
+            self.tribe_ai_system.update(dt)
+        else:
+            # Update einfaches NPC-System
+            self.npc_system.update(dt)
         
         # Farm-Tiles an Farming-System weitergeben
         self.farming_system.set_farm_tiles(self.farm_ui.get_farm_tiles())
@@ -952,8 +991,11 @@ class Game:
         if self.use_3d_npcs:
             # 3D-NPCs werden mit OpenGL gerendert (nach 2D-Rendering)
             pass  # 3D-Rendering erfolgt später
+        elif self.use_ai_tribe:
+            # KI-Stamm mit TensorFlow-NPCs zeichnen
+            self.tribe_ai_system.render(world_surface, self.camera)
         else:
-            # Neue intelligente 2D-NPCs mit Player-Sprites zeichnen
+            # Fallback: Einfache 2D-NPCs zeichnen
             self.npc_system.render(world_surface, self.camera)
         
         # === Finaler Screen Rendering ===
@@ -1035,6 +1077,14 @@ class Game:
         print("☀️ N           = Springe zu Mittag (12:00)")
         print("🌆 E           = Springe zu Abend (18:00)")
         print("❓ H           = Diese Hilfe anzeigen")
+        print("")
+        print("🧠 KI-STAMM STEUERUNG")
+        print("="*50)
+        print("🔬 I           = KI-Debug-Modus ein/aus")
+        print("📊 K           = KI-Statistiken anzeigen")
+        print("💭 Stammverhalten: Sammeln, Planen, Bewachen, Gespräche")
+        print("🏘️ Territorium: Südlich des Sees (sichtbar)")
+        print("🤖 TensorFlow: Lernt aus Spielerverhalten")
         print("="*50)
         print("💡 Tipp: Beobachte die Sonne im Zeit-UI!")
         print("="*50 + "\n")
@@ -1076,6 +1126,8 @@ class Game:
         print("1/2 = Weizen/Karotte pflanzen (auf Farmland)")
         print("W = Gießen, H = Ernten")
         print("F = Tier füttern, C = Von Tier sammeln")
+        print("🤖 T = AI Tribe Members zu dir teleportieren")
+        print("🤖 I = AI Debug-Modus, K = AI Stats")
 
 if __name__ == '__main__':
     Game().run()
