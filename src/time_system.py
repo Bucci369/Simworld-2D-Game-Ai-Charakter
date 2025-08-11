@@ -25,6 +25,7 @@ class GameTime:
         self.start_real_time = time.time()
         self.last_update_time = time.time()
         self.last_farming_update = time.time()  # Für Farming-System
+        self.last_hunger_update = time.time()   # Für Hunger-System (separat!)
         self.paused = False
         self.time_speed = 1.0  # Zeitgeschwindigkeit (1.0 = normal, 2.0 = doppelt so schnell)
         
@@ -97,7 +98,7 @@ class GameTime:
         return not self.is_day()
         
     def get_hours_passed(self):
-        """Gib die verstrichenen Spielstunden seit letztem Aufruf zurück"""
+        """Gib die verstrichenen Spielstunden seit letztem Aufruf zurück (für Farming)"""
         if self.paused:
             self.last_farming_update = time.time()
             return 0.0
@@ -105,6 +106,20 @@ class GameTime:
         current_real_time = time.time()
         real_time_passed = (current_real_time - self.last_farming_update) * self.time_speed
         self.last_farming_update = current_real_time
+        
+        # Konvertiere echte Zeit zu Spielstunden
+        game_hours_passed = real_time_passed / self.real_seconds_per_game_hour
+        return game_hours_passed
+        
+    def get_hours_passed_for_hunger(self):
+        """Gib die verstrichenen Spielstunden seit letztem Aufruf zurück (für Hunger-System)"""
+        if self.paused:
+            self.last_hunger_update = time.time()
+            return 0.0
+            
+        current_real_time = time.time()
+        real_time_passed = (current_real_time - self.last_hunger_update) * self.time_speed
+        self.last_hunger_update = current_real_time
         
         # Konvertiere echte Zeit zu Spielstunden
         game_hours_passed = real_time_passed / self.real_seconds_per_game_hour

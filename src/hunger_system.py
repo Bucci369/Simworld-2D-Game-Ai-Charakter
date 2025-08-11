@@ -12,7 +12,7 @@ class HungerSystem:
         # Hunger-Werte
         self.max_hunger = 100.0
         self.current_hunger = 100.0
-        self.hunger_loss_per_hour = 10.0  # 10% pro Spielstunde
+        self.hunger_loss_per_hour = 1.5  # 1.5% pro Spielstunde (~67 Stunden = völlig hungrig)
         
         # Status
         self.is_starving = False  # Wenn Hunger unter 20%
@@ -39,7 +39,7 @@ class HungerSystem:
             return
             
         # Berechne Hunger-Verlust basierend auf verstrichener Spielzeit
-        hours_passed = game_time.get_hours_passed() if hasattr(game_time, 'get_hours_passed') else 0
+        hours_passed = game_time.get_hours_passed_for_hunger() if hasattr(game_time, 'get_hours_passed_for_hunger') else 0
         
         # Reduziere Hunger
         hunger_loss = hours_passed * self.hunger_loss_per_hour
@@ -159,7 +159,6 @@ class HungerSystem:
         # Warnung bei niedrigem Hunger
         if self.is_starving:
             # Blinkende Warnung
-            import pygame.time
             if (pygame.time.get_ticks() // 500) % 2:  # Blinkt alle 500ms
                 warning_text = self.font.render("ESSEN BENÖTIGT!", True, (255, 100, 100))
                 screen.blit(warning_text, (x, y + 55))

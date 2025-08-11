@@ -9,6 +9,7 @@ from farming_system import FarmingSystem
 from farm_ui import FarmUI
 from inventory import Inventory
 from hunger_system import HungerSystem
+from tree_system import TreeSystem
 from pygame import KMOD_SHIFT
 
 # Debug Panel (lazy import of assets)
@@ -518,6 +519,9 @@ class Game:
         # Hunger-System initialisieren
         self.hunger_system = HungerSystem()
         
+        # Tree-System initialisieren
+        self.tree_system = TreeSystem(self.world if USE_SIMPLE_WORLD else None)
+        
         # Versuche gespeicherte Welt zu laden
         self.auto_load_world()
         
@@ -719,15 +723,22 @@ class Game:
                 elif self.debug_panel.visible and self.debug_panel.is_mouse_over(*event.pos, self.screen.get_width()):
                     self.debug_panel.handle_event(event, self.screen.get_width())
                 else:
-                    # Normale Spieler-Bewegung
+                    # Alle anderen Klicks
                     mouse_screen = pygame.Vector2(event.pos)
                     world_x = mouse_screen.x + self.camera.camera.left
                     world_y = mouse_screen.y + self.camera.camera.top
                     mods = pygame.key.get_mods()
-                    if (mods & pygame.KMOD_SHIFT) and USE_SIMPLE_WORLD and self.world:
+                    
+                    # Prüfe zuerst Baum-Klicks
+                    if self.tree_system.handle_click((world_x, world_y), self.player.rect.center, self.inventory):
+                        # Baum wurde geklickt - keine weitere Aktion
+                        continue
+                    elif (mods & pygame.KMOD_SHIFT) and USE_SIMPLE_WORLD and self.world:
+                        # Debug Panel Platzierung
                         if not self.debug_panel.place_into_world(self.world, (world_x, world_y)):
                             self.player.set_target((world_x, world_y))
                     else:
+                        # Normale Spieler-Bewegung
                         self.player.set_target((world_x, world_y))
             elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
                 # Farm-UI Mouse-Up Events
@@ -760,6 +771,9 @@ class Game:
         
         # Farming-System updaten
         self.farming_system.update(dt, self.game_time)
+        
+        # Tree-System updaten
+        self.tree_system.update(dt)
         
         # Farm-Tiles an Farming-System weitergeben
         self.farming_system.set_farm_tiles(self.farm_ui.get_farm_tiles())
@@ -863,6 +877,9 @@ class Game:
             
         # Farm-Tiles als Bodentextur zeichnen (nach Basis-Welt, vor Sprites)
         self.farm_ui.draw_farm_tiles(self.screen, self.camera)
+        
+        # Bäume zeichnen (vor Spieler für korrektes Layering)
+        self.tree_system.draw(self.screen, self.camera.camera)
             
         for sprite in self.all_sprites:
             self.screen.blit(sprite.image, self.camera.apply_to_point(sprite.rect.topleft))

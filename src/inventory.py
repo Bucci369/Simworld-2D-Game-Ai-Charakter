@@ -109,6 +109,19 @@ class Inventory:
         else:
             icons['carrot_seeds'] = self._create_fallback_icon((139, 69, 19))  # Braun
         
+        # Wood-Icon
+        wood_path = os.path.join(base_dir, 'assets', 'Outdoor decoration', 'wood.png')
+        if os.path.exists(wood_path):
+            try:
+                img = pygame.image.load(wood_path).convert_alpha()
+                icons['wood'] = pygame.transform.scale(img, (self.slot_size - 8, self.slot_size - 8))
+                print("Holz-Icon geladen!")
+            except Exception as e:
+                print(f"Fehler beim Laden des Holz-Icons: {e}")
+                icons['wood'] = self._create_fallback_icon((139, 69, 19))  # Braun
+        else:
+            icons['wood'] = self._create_fallback_icon((139, 69, 19))  # Braun
+        
         return icons
     
     def _create_fallback_icon(self, color):

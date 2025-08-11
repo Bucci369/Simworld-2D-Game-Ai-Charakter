@@ -20,8 +20,8 @@ class Crop:
         self.watered = False
         self.ready_to_harvest = False
         
-        # Karotten brauchen nur 10 Sekunden pro Stufe (für schnelle Tests!)
-        self.growth_rate = 0.1  # 0.1 Spielstunden = ~4 echte Sekunden pro Wachstumsstufe
+        # Karotten brauchen nur 2 echte Sekunden pro Stufe (für schnelle Tests!)
+        self.growth_rate = 0.01  # 0.01 Spielstunden = ~0.4 echte Sekunden pro Wachstumsstufe
         
     def update(self, game_hours_passed):
         """Update der Pflanze basierend auf Spielzeit"""
@@ -29,19 +29,24 @@ class Crop:
             self.ready_to_harvest = True
             return
             
+        # Debug: Nur bei tatsächlichem Wachstum zeigen
+            
         # Nur wachsen wenn gegossen
         if self.watered:
             self.growth_time += game_hours_passed
             
             # Wachse zur nächsten Stufe
             if self.growth_time >= self.growth_rate:
+                old_stage = self.growth_stage
                 self.growth_stage += 1
                 self.growth_time = 0.0
                 self.watered = False  # Muss wieder gegossen werden
                 
+                print(f"🌿 Wachstum! Karotte bei ({self.tile_x}, {self.tile_y}) von Stufe {old_stage} zu {self.growth_stage}")
+                
                 if self.growth_stage >= self.max_growth:
                     self.ready_to_harvest = True
-                    print(f"Karotte bei ({self.tile_x}, {self.tile_y}) ist reif zum Ernten!")
+                    print(f"✅ Karotte bei ({self.tile_x}, {self.tile_y}) ist reif zum Ernten!")
     
     def water(self):
         """Pflanze gießen"""
@@ -321,36 +326,62 @@ class FarmingSystem:
         """Setze Farm-Tiles vom UI"""
         self.farm_tiles = farm_tiles
         
-    def plant_crop_at_tile(self, tile_x, tile_y, crop_type="carrot"):
+    def plant_crop_at_tile(self, tile_x, tile_y, crop_type="carrot", inventory=None):
         """Pflanze Crop an Tile-Koordinaten"""
-        if crop_type not in self.seeds_inventory or self.seeds_inventory[crop_type] <= 0:
-            print(f"Keine {crop_type}-Samen im Inventar!")
-            return False
+        # Debug-Ausgaben
+        print(f"🌱 Versuche {crop_type} zu pflanzen bei ({tile_x}, {tile_y})")
+        
+        # Prüfe Samen im neuen Inventar-System
+        seed_type = f"{crop_type}_seeds"
+        if inventory:
+            seed_count = inventory.get_item_count(seed_type)
+            print(f"📦 Inventar check: {seed_count} {seed_type} verfügbar")
+            if not inventory.has_item(seed_type, 1):
+                print(f"❌ Keine {seed_type} im Inventar!")
+                return False
+        else:
+            # Fallback auf altes System
+            if crop_type not in self.seeds_inventory or self.seeds_inventory[crop_type] <= 0:
+                print(f"❌ Keine {crop_type}-Samen im Inventar!")
+                return False
             
         # Prüfe ob es ein Farm-Tile ist
         if (tile_x, tile_y) not in self.farm_tiles:
-            print("Das ist kein Farm-Bereich!")
+            print(f"❌ Das ist kein Farm-Bereich! Farm-Tiles: {len(self.farm_tiles)}")
             return False
         
         # Prüfe ob bereits bepflanzt
         if (tile_x, tile_y) in self.crops:
-            print("Hier wächst bereits etwas!")
+            print("❌ Hier wächst bereits etwas!")
             return False
             
         # Pflanze Crop
         crop = Crop(crop_type, tile_x, tile_y)
         self.crops[(tile_x, tile_y)] = crop
-        self.seeds_inventory[crop_type] -= 1
-        print(f"{crop_type.title()} gepflanzt bei ({tile_x}, {tile_y})!")
+        
+        # Entferne Samen aus Inventar
+        if inventory:
+            removed = inventory.remove_item(seed_type, 1)
+            print(f"📦 {removed} {seed_type} aus Inventar entfernt")
+        else:
+            # Fallback auf altes System
+            self.seeds_inventory[crop_type] -= 1
+            
+        print(f"✅ {crop_type.title()} gepflanzt bei ({tile_x}, {tile_y})!")
+        print(f"🌿 Aktuelle Pflanzen: {len(self.crops)}")
         return True
     
     def water_crop_at_tile(self, tile_x, tile_y):
         """Gieße Pflanze an Tile-Koordinaten"""
+        print(f"💧 Versuche zu gießen bei ({tile_x}, {tile_y})")
         if (tile_x, tile_y) in self.crops:
             crop = self.crops[(tile_x, tile_y)]
+            print(f"🌱 Pflanze gefunden: Stufe {crop.growth_stage}, bereits gegossen: {crop.watered}")
             crop.water()
+            print(f"✅ Nach Gießen: Stufe {crop.growth_stage}, gegossen: {crop.watered}")
             return True
-        print("Keine Pflanze zum Gießen hier!")
+        print("❌ Keine Pflanze zum Gießen hier!")
+        print(f"🌾 Verfügbare Pflanzen: {list(self.crops.keys())}")
         return False
     
     def harvest_crop_at_tile(self, tile_x, tile_y, inventory=None):
@@ -393,7 +424,7 @@ class FarmingSystem:
         
         if action == 'plant':
             crop_type = action_data.get('crop', 'carrot')
-            return self.plant_crop_at_tile(tile_x, tile_y, crop_type)
+            return self.plant_crop_at_tile(tile_x, tile_y, crop_type, inventory)
         elif action == 'harvest':
             return self.harvest_crop_at_tile(tile_x, tile_y, inventory)
         elif action == 'water':
@@ -434,6 +465,11 @@ class FarmingSystem:
         """Update aller Farming-Elemente"""
         # Update Pflanzen
         hours_passed = game_time.get_hours_passed() if hasattr(game_time, 'get_hours_passed') else dt / 3600
+        
+        # Debug: Zeige nur wenn tatsächlich Zeit vergeht
+        if len(self.crops) > 0 and hours_passed > 0.001:  # Nur wenn messbare Zeit vergeht
+            print(f"🔄 Farming Update: {len(self.crops)} Pflanzen, {hours_passed:.4f} Stunden vergangen")
+        
         for crop in self.crops.values():
             crop.update(hours_passed)
         
