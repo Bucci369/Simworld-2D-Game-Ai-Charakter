@@ -14,6 +14,8 @@ from mining_system import MiningSystem
 from npc_system_simple import NPCSystem2D
 from tribe_ai_system import TribeAISystem  # Zurück zum Original System
 from hybrid_ai_system import HybridAISystem  # 300 Character Hybrid System
+from storage_system import StorageSystem
+from house_system import HouseSystem
 from pygame import KMOD_SHIFT
 
 # Debug Panel (lazy import of assets)
@@ -529,46 +531,43 @@ class Game:
         # Mining-System initialisieren
         self.mining_system = MiningSystem(self.world if USE_SIMPLE_WORLD else None)
         
+        # 📦 Storage-System initialisieren (Lager für jedes Volk)
+        self.storage_system = StorageSystem()
+        
+        # 🏠 House-System initialisieren (Häuser und Stadtplanung)
+        self.house_system = HouseSystem()
+        
         # NPC-System initialisieren (einfaches 2D-System)
         self.npc_system = NPCSystem2D(self.world if USE_SIMPLE_WORLD else None)
         
         # 🧠 KI-Stamm-System initialisieren
-        # Initialize Hybrid AI System (300 Characters: 3 Leaders + 297 Workers)
-        try:
-            from hybrid_ai_system import HybridAISystem
-            self.tribe_ai_system = HybridAISystem(world_width=3200, world_height=2400)
-            self.tribe_ai_system.spawn_characters(300, spawn_x, spawn_y)  # 3 Leaders + 297 Workers
-            self.use_ai_tribes = True
-            print("🚀 Hybrid AI System loaded with 300 characters (3 Tribe Leaders + 297 Workers)")
-        except ImportError as e:
-            # Fallback zum Scalable System
-            try:
-                from scalable_ai_system import ScalableAIManager
-                self.tribe_ai_system = ScalableAIManager(world_width=3200, world_height=2400)
-                self.tribe_ai_system.spawn_characters(50, num_clusters=8)  # 50 Charaktere in 8 Clustern
-                self.use_ai_tribes = True
-                print("🚀 Scalable AI System loaded with 50 characters (fallback)")
-            except ImportError as e2:
-                # Final Fallback zum normalen System
-                from tribe_ai_system import TribeAISystem
-                self.tribe_ai_system = TribeAISystem(self.world if USE_SIMPLE_WORLD else None)
-                self.use_ai_tribes = True
-                print(f"Fallback to normal AI System: {e2}")
+        # Verwende das neue erweiterte TribeAISystem mit 3 Anführern + 99 Untertanen
+        from tribe_ai_system import TribeAISystem
+        self.tribe_ai_system = TribeAISystem(
+            world=self.world if USE_SIMPLE_WORLD else None,
+            storage_system=self.storage_system,
+            house_system=self.house_system
+        )
+        
+        # Verbinde AI-System mit Ressourcen-Systemen
+        self.tribe_ai_system.tree_system = self.tree_system
+        self.tribe_ai_system.mining_system = self.mining_system
+        self.use_ai_tribes = True
+        print("🚀 Erweiteres Tribe AI System geladen (3 Anführer + 99 Untertanen System)")
         
         # Immer 2D-NPCs verwenden (Performance-optimiert)
         self.use_3d_npcs = False
         self.use_ai_tribe = True  # Verwende KI-Stamm statt einfacher NPCs
         
-        # Spawne Position südlich des Sees (für Sichtbarkeit)
-        lake_center_x = spawn_x + 200  # Östlich vom Spieler
-        lake_center_y = spawn_y + 300  # Südlich vom Spieler
-        tribe_spawn_pos = (lake_center_x, lake_center_y)
+        # Verwende Spieler-Position als Zentrum für Völker-Verteilung
+        player_x, player_y = spawn_x, spawn_y
+        tribe_spawn_pos = (player_x, player_y)
         
-        if self.use_ai_tribe:
-            # Erstelle KI-Stamm südlich des Sees
-            # Hybrid AI System erstellt automatisch 300 Characters beim spawn_characters() Aufruf
-            # 3 Neural Network Anführer + 297 FSM Workers (99 pro Anführer) verteilt um den Spieler
-            print("🧠 300 KI-Charaktere (3 Tribe Leaders + 297 Workers) um den Spieler verteilt!")
+        if self.use_ai_tribe and hasattr(self.tribe_ai_system, 'create_tribe'):
+            # Erstelle KI-Stamm südlich des Sees mit dem normalen TribeAI System
+            # Verwende das normale System mit 3 Anführern + 99 Untertanen = 102 NPCs
+            self.tribe_ai_system.create_tribe(tribe_spawn_pos, member_count=102)
+            print("🧠 102 KI-Charaktere (3 Anführer + 99 Untertanen) erstellt!")
         else:
             # Fallback: Alte NPCs
             npc_spawn_x = spawn_x // TILE_SIZE + 5
@@ -750,6 +749,38 @@ class Game:
                             # Normal AI System
                             stats = self.tribe_ai_system.get_ai_stats()
                             print(f"🧠 KI-Stats: {stats}")
+                
+                elif event.key == pygame.K_r:
+                    # [R] - Ressourcen-Debug: Zeige alle gesammelten Ressourcen
+                    if hasattr(self.tribe_ai_system, 'members'):
+                        print("📊 RESSOURCEN-ÜBERSICHT:")
+                        for color in ['red', 'blue', 'green']:
+                            tribe_members = [m for m in self.tribe_ai_system.members if m.tribe_color == color]
+                            total_wood = sum(m.memory.resources_collected['wood'] for m in tribe_members)
+                            total_stone = sum(m.memory.resources_collected['stone'] for m in tribe_members)
+                            print(f"  🔴🔵🟢 {color.upper()} Volk: {total_wood} Holz, {total_stone} Stein ({len(tribe_members)} Mitglieder)")
+                
+                elif event.key == pygame.K_b:
+                    # [B] - Baufortschritt-Debug  
+                    if hasattr(self.tribe_ai_system, 'world_state'):
+                        print("🏠 BAUFORTSCHRITT:")
+                        for color in ['red', 'blue', 'green']:
+                            house_key = f'house_progress_{color}'
+                            progress = self.tribe_ai_system.world_state.get(house_key, 0.0)
+                            completed = self.tribe_ai_system.world_state.get(f'house_completed_{color}', False)
+                            status = "✅ FERTIG" if completed else f"{progress:.1%}"
+                            house_type = {"red": "Holzhaus", "blue": "Haus", "green": "Steinburg"}[color]
+                            print(f"  🔴🔵🟢 {color.upper()} {house_type}: {status}")
+                
+                elif event.key == pygame.K_o:
+                    # [O] - Boost Ressourcen sammeln (zum Testen)
+                    if hasattr(self.tribe_ai_system, 'members'):
+                        print("⚡ RESSOURCEN-BOOST AKTIVIERT!")
+                        import random
+                        for member in self.tribe_ai_system.members[:20]:  # Erste 20 NPCs
+                            member.memory.resources_collected['wood'] += random.randint(5, 15)
+                            member.memory.resources_collected['stone'] += random.randint(3, 10)
+                        print("🪓 +Holz und ⛏️ +Stein für 20 NPCs hinzugefügt!")
                 elif event.key == pygame.K_t:
                     # T = Teleportiere AI Members zum Player
                     if self.tribe_ai_system:
@@ -849,6 +880,16 @@ class Game:
                     if self.mining_system.handle_click((world_x, world_y), self.player.rect.center, self.inventory):
                         # Resource wurde geklickt - keine weitere Aktion
                         continue
+                    
+                    # 📦 Prüfe Lager-Klicks
+                    if self.storage_system.handle_click((world_x, world_y), self.player.rect.center):
+                        # Lager wurde geklickt
+                        continue
+                    
+                    # 🏠 Prüfe Haus-Klicks  
+                    if self.house_system.handle_click((world_x, world_y), self.player.rect.center):
+                        # Haus wurde geklickt
+                        continue
                     elif (mods & pygame.KMOD_SHIFT) and USE_SIMPLE_WORLD and self.world:
                         # Debug Panel Platzierung
                         if not self.debug_panel.place_into_world(self.world, (world_x, world_y)):
@@ -893,6 +934,12 @@ class Game:
         
         # Mining-System updaten
         self.mining_system.update(dt)
+        
+        # 📦 Storage-System updaten
+        self.storage_system.update(dt)
+        
+        # 🏠 House-System updaten
+        self.house_system.update(dt)
         
         # NPC-System updaten
         if self.use_ai_tribe:
@@ -1022,6 +1069,12 @@ class Game:
         
         # Mining-Resources auf World Surface zeichnen
         self.mining_system.draw(world_surface, self.camera.camera)
+        
+        # 📦 Lager auf World Surface zeichnen
+        self.storage_system.draw(world_surface, self.camera.camera)
+        
+        # 🏠 Häuser auf World Surface zeichnen (vor NPCs für korrektes Layering)
+        self.house_system.draw(world_surface, self.camera.camera)
             
         # Sprites auf World Surface zeichnen (normale Größe)
         for sprite in self.all_sprites:
@@ -1181,6 +1234,8 @@ class Game:
         print("F = Tier füttern, C = Von Tier sammeln")
         print("🤖 T = AI Tribe Members zu dir teleportieren")
         print("🤖 I = AI Debug-Modus, K = AI Stats")
+        print("🤖 R = Ressourcen anzeigen, B = Baufortschritt")
+        print("🤖 O = Ressourcen-Boost (zum Testen)")
 
 if __name__ == '__main__':
     Game().run()
