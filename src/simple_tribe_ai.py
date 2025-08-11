@@ -93,7 +93,8 @@ class SimpleNPC:
             if not tribe_system:
                 return
 
-            houses = [h for h in world_state['house_system'].houses if h.tribe_color == self.tribe_color]
+            # Hole alle Häuser des Stammes
+            houses = [h for h in world_state['house_system'].houses.values() if h.tribe_color == self.tribe_color]
             npcs = world_state['tribe_system'].tribes[self.tribe_color]
             
             # Prüfe ob Häuser fehlen
@@ -250,14 +251,16 @@ class SimpleNPC:
             storage = world_state.get('storage_system').get_storage(self.tribe_color)
             if storage and storage.get_resource_amount('wood') >= 15:
                 # Erstelle neues Haus
-                house = world_state.get('house_system').create_house(self.npc_id, self.tribe_color)
+                house = world_state.get('house_system').build_house_for_npc(self.npc_id, self.tribe_color)
                 if house:
                     self.target_house = house
                     storage.remove_resources('wood', 15)
                     self.speech_bubble = SpeechBubble("Beginne mit dem Hausbau!", 3.0)
                     logger.info(f"🏗️ {self.npc_id} beginnt Hausbau!")
                 else:
-                    logger.info(f"❌ {self.npc_id} konnte kein Haus bauen!")
+                    logger.info(f"❌ {self.npc_id} konnte kein Haus bauen - zu viele Baustellen?")
+                    # Wenn wir kein Haus bauen können, zurück zum Holz sammeln
+                    self.state = NPCState.COLLECTING_WOOD
 
         if self.target_house:
             house_pos = pygame.Vector2(self.target_house.position)

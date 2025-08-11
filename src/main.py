@@ -557,6 +557,9 @@ class Game:
             storage_pos = (tribe_spawn_pos[0] - 100, tribe_spawn_pos[1] - 100)
             self.storage_system.create_storage(storage_pos, "red")
             
+            # Initialisiere Stadtplaner für den Stamm
+            self.house_system.create_city_planner("red", storage_pos)
+            
             # Erstelle einen einfachen Stamm mit 1 Anführer und 2 Arbeitern
             self.tribe_system.create_tribe("red", tribe_spawn_pos, num_workers=2)
             print("👥 Stamm erstellt: 1 Anführer + 2 Arbeiter")
