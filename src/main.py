@@ -12,8 +12,7 @@ from hunger_system import HungerSystem
 from tree_system import TreeSystem
 from mining_system import MiningSystem
 from npc_system_simple import NPCSystem2D
-from tribe_ai_system import TribeAISystem  # Zurück zum Original System
-from hybrid_ai_system import HybridAISystem  # 300 Character Hybrid System
+from simple_tribe_ai import SimpleTribeSystem  # Neues vereinfachtes System
 from storage_system import StorageSystem
 from house_system import HouseSystem
 from pygame import KMOD_SHIFT
@@ -540,20 +539,10 @@ class Game:
         # NPC-System initialisieren (einfaches 2D-System)
         self.npc_system = NPCSystem2D(self.world if USE_SIMPLE_WORLD else None)
         
-        # 🧠 KI-Stamm-System initialisieren
-        # Verwende das neue erweiterte TribeAISystem mit 3 Anführern + 99 Untertanen
-        from tribe_ai_system import TribeAISystem
-        self.tribe_ai_system = TribeAISystem(
-            world=self.world if USE_SIMPLE_WORLD else None,
-            storage_system=self.storage_system,
-            house_system=self.house_system
-        )
-        
-        # Verbinde AI-System mit Ressourcen-Systemen
-        self.tribe_ai_system.tree_system = self.tree_system
-        self.tribe_ai_system.mining_system = self.mining_system
+        # 🧠 Einfaches KI-Stamm-System initialisieren
+        self.tribe_system = SimpleTribeSystem()
         self.use_ai_tribes = True
-        print("🚀 Erweiteres Tribe AI System geladen (3 Anführer + 99 Untertanen System)")
+        print("🏠 Einfaches Tribe AI System geladen (1 Anführer + 2 Arbeiter)")
         
         # Immer 2D-NPCs verwenden (Performance-optimiert)
         self.use_3d_npcs = False
@@ -563,18 +552,14 @@ class Game:
         player_x, player_y = spawn_x, spawn_y
         tribe_spawn_pos = (player_x, player_y)
         
-        if self.use_ai_tribe and hasattr(self.tribe_ai_system, 'create_tribe'):
-            # Erstelle KI-Stamm südlich des Sees mit dem normalen TribeAI System
-            # Verwende das normale System mit 3 Anführern + 99 Untertanen = 102 NPCs
-            self.tribe_ai_system.create_tribe(tribe_spawn_pos, member_count=102)
-            print("🧠 102 KI-Charaktere (3 Anführer + 99 Untertanen) erstellt!")
-        else:
-            # Fallback: Alte NPCs
-            npc_spawn_x = spawn_x // TILE_SIZE + 5
-            npc_spawn_y = spawn_y // TILE_SIZE + 3
-            npc_spawn_area = (npc_spawn_x * TILE_SIZE, npc_spawn_y * TILE_SIZE)
-            self.npc_system.spawn_intelligent_swarm(npc_spawn_area, count=8)
-            print("🎯 Intelligenter NPC-Schwarm mit Player-Sprites aktiviert!")
+        if self.use_ai_tribes:
+            # Erstelle Lager für den Stamm
+            storage_pos = (tribe_spawn_pos[0] - 100, tribe_spawn_pos[1] - 100)
+            self.storage_system.create_storage(storage_pos, "red")
+            
+            # Erstelle einen einfachen Stamm mit 1 Anführer und 2 Arbeitern
+            self.tribe_system.create_tribe("red", tribe_spawn_pos, num_workers=2)
+            print("👥 Stamm erstellt: 1 Anführer + 2 Arbeiter")
         
         # Versuche gespeicherte Welt zu laden
         self.auto_load_world()
@@ -942,19 +927,16 @@ class Game:
         self.house_system.update(dt)
         
         # NPC-System updaten
-        if self.use_ai_tribe:
-            # Update KI-Stamm-System
-            player_world_pos = (self.player.rect.centerx, self.player.rect.centery)
-            self.tribe_ai_system.player_pos = player_world_pos
-            # Update AI System - unterschiedliche Parameter für skalierbare vs normale Version
-            if hasattr(self.tribe_ai_system, 'spawn_characters'):
-                # Scalable AI System - braucht Player Position für Culling
-                player_x = self.player.x if hasattr(self.player, 'x') else 400
-                player_y = self.player.y if hasattr(self.player, 'y') else 300
-                self.tribe_ai_system.update(dt, player_x, player_y)
-            else:
-                # Normal AI System
-                self.tribe_ai_system.update(dt)
+        if self.use_ai_tribes:
+            # Erstelle world_state Dictionary mit allen benötigten Systemen
+            world_state = {
+                'tree_system': self.tree_system,
+                'storage_system': self.storage_system,
+                'house_system': self.house_system,
+                'tribe_system': self.tribe_system
+            }
+            # Update das vereinfachte Stamm-System
+            self.tribe_system.update(dt, world_state)
         else:
             # Update einfaches NPC-System
             self.npc_system.update(dt)
@@ -1092,14 +1074,21 @@ class Game:
             # 3D-NPCs werden mit OpenGL gerendert (nach 2D-Rendering)
             pass  # 3D-Rendering erfolgt später
         elif self.use_ai_tribe:
-            # KI-Stamm mit TensorFlow-NPCs zeichnen
-            # Render AI System - unterschiedliche Parameter
-            if hasattr(self.tribe_ai_system, 'spawn_characters'):
-                # Scalable AI System - nutze camera.camera.x/y
-                self.tribe_ai_system.render(world_surface, self.camera.camera.x, self.camera.camera.y)
-            else:
-                # Normal AI System
-                self.tribe_ai_system.render(world_surface, self.camera)
+            # Einfaches Stamm-System rendern
+            for color, npcs in self.tribe_system.tribes.items():
+                for npc in npcs:
+                    # Erstelle ein einfaches Rechteck für jeden NPC
+                    color_rgb = (255, 0, 0) if color == "red" else (0, 0, 255)  # Rot für roten Stamm
+                    screen_pos = self.camera.apply_to_point((npc.position.x, npc.position.y))
+                    if npc.is_leader:  # Leader ist größer
+                        pygame.draw.rect(world_surface, color_rgb, (*screen_pos, 40, 40))
+                        pygame.draw.rect(world_surface, (255, 215, 0), (*screen_pos, 40, 40), 2)  # Goldener Rahmen
+                    else:
+                        pygame.draw.rect(world_surface, color_rgb, (*screen_pos, 32, 32))
+                    
+                    # Sprechblase rendern
+                    if npc.speech_bubble and not npc.speech_bubble.is_expired():
+                        npc.speech_bubble.draw(world_surface, self.camera, (npc.position.x + 16, npc.position.y - 10))
         else:
             # Fallback: Einfache 2D-NPCs zeichnen
             self.npc_system.render(world_surface, self.camera)

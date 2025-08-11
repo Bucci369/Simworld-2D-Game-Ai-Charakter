@@ -27,6 +27,31 @@ class TribeStorage:
         # Hitbox für Interaktion
         self.rect = pygame.Rect(position[0], position[1], self.size[0], self.size[1])
         
+    def get_resource_amount(self, resource: str) -> int:
+        """Gibt die Menge einer Ressource zurück"""
+        return self.resources.get(resource, 0)
+        
+    def add_resources(self, resource: str, amount: int):
+        """Fügt Ressourcen zum Lager hinzu"""
+        if resource in self.resources:
+            self.resources[resource] += amount
+            print(f"📦 {self.tribe_color.upper()} Lager: +{amount} {resource} (Total: {self.resources[resource]})")
+            
+    def remove_resources(self, resource: str, amount: int) -> bool:
+        """Entfernt Ressourcen aus dem Lager"""
+        if resource in self.resources and self.resources[resource] >= amount:
+            self.resources[resource] -= amount
+            print(f"📦 {self.tribe_color.upper()} Lager: -{amount} {resource} (Total: {self.resources[resource]})")
+            return True
+        return False
+        
+        # Visuelles
+        self.size = (80, 60)  # Lager-Größe
+        self.sprite = self._create_storage_sprite()
+        
+        # Hitbox für Interaktion
+        self.rect = pygame.Rect(position[0], position[1], self.size[0], self.size[1])
+        
     def _create_storage_sprite(self) -> pygame.Surface:
         """Erstelle visuelles Lager-Sprite"""
         storage = pygame.Surface(self.size, pygame.SRCALPHA)
@@ -56,12 +81,6 @@ class TribeStorage:
             pass  # Fallback ohne Text
             
         return storage
-    
-    def add_resources(self, resource_type: str, amount: int):
-        """Füge Rohstoffe zum Lager hinzu"""
-        if resource_type in self.resources:
-            self.resources[resource_type] += amount
-            print(f"📦 {self.tribe_color.upper()} Lager: +{amount} {resource_type} (Total: {self.resources[resource_type]})")
     
     def take_resources(self, resource_type: str, amount: int) -> int:
         """Nimm Rohstoffe aus dem Lager"""
@@ -120,7 +139,7 @@ class StorageSystem:
     def __init__(self):
         self.storages = {}  # {tribe_color: TribeStorage}
     
-    def create_storage(self, tribe_color: str, position: Tuple[float, float]):
+    def create_storage(self, position: Tuple[float, float], tribe_color: str):
         """Erstelle ein Lager für ein Volk"""
         storage = TribeStorage(position, tribe_color)
         self.storages[tribe_color] = storage

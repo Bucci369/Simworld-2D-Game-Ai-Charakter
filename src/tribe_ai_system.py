@@ -598,6 +598,12 @@ class TribeAIMember:
         """Anführer gibt intelligenten Auftrag an Untertan (SMART LEADER LOGIC)"""
         if not self.is_leader:
             return None
+            
+        # Prüfe ob der Follower schon eine aktive und sinnvolle Aufgabe hat
+        if (follower.assigned_task and 
+            follower.current_action not in [ActionType.IDLE, ActionType.WANDERING] and
+            time.time() - follower._last_productive_time < 10.0):
+            return None  # Behalte aktuelle Aufgabe bei
         
         # 🧠 INTELLIGENTE ANFÜHRER-LOGIK - GESTAFFELTES BAUSYSTEM
         tribe_storage = None
@@ -973,16 +979,26 @@ class TribeAIMember:
 
         # Decide next action
         state_vector = self.get_state_vector(nearby_members, world_state)
-        if should_update_ai and (self.action_timer > 2.0 or self.current_action == ActionType.IDLE):
-            if not self.is_leader and self.assigned_task:
-                mapping = {
-                    'collect_wood': ActionType.WOOD_CHOPPING,
-                    'collect_stone': ActionType.STONE_MINING,
-                    'build_house': ActionType.HOUSE_BUILDING,
-                    'rest': ActionType.IDLE
-                }
-                new_action = mapping.get(self.assigned_task, ActionType.WANDERING)
-            elif not self.is_leader and not self.assigned_task:
+        if should_update_ai or self.current_action in [ActionType.IDLE, ActionType.WANDERING]:
+            # Für Untertanen: Priorisiere zugewiesene Aufgaben
+            if not self.is_leader:
+                if self.assigned_task:
+                    # Task-zu-Action Mapping
+                    mapping = {
+                        'collect_wood': ActionType.WOOD_CHOPPING,
+                        'collect_stone': ActionType.STONE_MINING,
+                        'build_house': ActionType.HOUSE_BUILDING,
+                        'rest': ActionType.IDLE
+                    }
+                    new_action = mapping.get(self.assigned_task)
+                    if new_action:
+                        logger.info(f"🎯 {self.member_id} führt Aufgabe aus: {self.assigned_task}")
+                        self._change_action(new_action)
+                        self.action_timer = 0.0
+                        return
+                    
+                # Fallback: Wenn keine gültige Aufgabe, suche neue
+                self._force_basic_task()
                 new_action = ActionType.WANDERING
             else:
                 self.last_ai_update = current_time
@@ -1029,20 +1045,36 @@ class TribeAIMember:
 
     def _force_basic_task(self):
         """Fallback falls Untertan zu lange untätig ist"""
-        # Wenn bereits eine Aufgabe aktiv, nichts tun
-        if self.assigned_task and self.current_action not in [ActionType.IDLE, ActionType.WANDERING]:
+        # Wenn bereits eine produktive Aufgabe aktiv, behalte sie
+        if (self.assigned_task and 
+            self.current_action not in [ActionType.IDLE, ActionType.WANDERING] and
+            time.time() - self._last_productive_time < 10.0):
             return
-        # Wähle bevorzugt Spezialisierung
-        preferred = None
+            
+        # Prüfe Ressourcenbedarf des eigenen Hauses
+        if self.house and not self.house.built:
+            reqs = self.house.get_build_requirements()
+            if reqs.get('wood', 0) > 0:
+                self.assigned_task = 'collect_wood'
+                logger.info(f"🏠 {self.member_id}: Sammle Holz für eigenes Haus")
+                return
+            elif reqs.get('stone', 0) > 0:
+                self.assigned_task = 'collect_stone'
+                logger.info(f"🏠 {self.member_id}: Sammle Stein für eigenes Haus")
+                return
+                
+        # Wähle basierend auf Spezialisierung
         if self.job_specialization == 'wood_cutter':
-            preferred = 'collect_wood'
+            self.assigned_task = 'collect_wood'
         elif self.job_specialization == 'miner':
-            preferred = 'collect_stone'
+            self.assigned_task = 'collect_stone'
         elif self.job_specialization == 'builder' and self.house and not self.house.built:
-            preferred = 'build_house'
-        # Fallback rotierend
-        if not preferred:
-            preferred = random.choice(['collect_wood', 'collect_stone'])
+            self.assigned_task = 'build_house'
+        else:
+            # Zufällige Aufgabe, aber bevorzuge Ressourcensammeln
+            self.assigned_task = random.choice(['collect_wood'] * 3 + ['collect_stone'] * 3 + ['build_house'])
+            
+        logger.info(f"⚡ {self.member_id}: Neue Aufgabe durch Spezialisierung: {self.assigned_task}")
         self.assigned_task = preferred
         mapping = {
             'collect_wood': ActionType.WOOD_CHOPPING,
@@ -1056,24 +1088,54 @@ class TribeAIMember:
         """Weise allen untätigen oder wandernden Untertanen sofort eine Aufgabe zu"""
         if not self.is_leader or not hasattr(self, 'followers') or not self.followers:
             return
+            
+        # Prüfe Stamm-Bedürfnisse
+        wood_needed = 0
+        stone_needed = 0
+        if hasattr(self, '_tribe_system'):
+            for member in self._tribe_system.members:
+                if member.tribe_color == self.tribe_color and member.house:
+                    if not member.house.built:
+                        reqs = member.house.get_build_requirements()
+                        wood_needed += reqs.get('wood', 0)
+                        stone_needed += reqs.get('stone', 0)
+
         assigned_count = 0
+        wood_collectors = 0
+        stone_collectors = 0
+        
+        # Weise Aufgaben zu
         for follower in self.followers:
-            if follower and follower.current_action in [ActionType.IDLE, ActionType.WANDERING]:
-                task = self._assign_task_to_follower(follower)
+            if not follower:
+                continue
+                
+            # Auch beschäftigte NPCs können neue Aufgaben bekommen wenn dringend benötigt
+            should_reassign = (
+                follower.current_action in [ActionType.IDLE, ActionType.WANDERING] or
+                (wood_needed > 0 and stone_collectors > wood_collectors) or
+                (stone_needed > 0 and wood_collectors > stone_collectors)
+            )
+            
+            if should_reassign:
+                # Entscheide Aufgabe basierend auf Bedarf
+                task = None
+                if wood_needed > stone_needed and wood_collectors < len(self.followers) // 2:
+                    task = {'type': 'collect_wood', 'priority': 8}
+                    wood_collectors += 1
+                elif stone_needed > 0 and stone_collectors < len(self.followers) // 2:
+                    task = {'type': 'collect_stone', 'priority': 8}
+                    stone_collectors += 1
+                else:
+                    task = self._assign_task_to_follower(follower)
+                
                 if task:
                     follower.assigned_task = task['type']
                     follower.task_priority = task['priority']
-                    mapping = {
-                        'collect_wood': ActionType.WOOD_CHOPPING,
-                        'collect_stone': ActionType.STONE_MINING,
-                        'build_house': ActionType.HOUSE_BUILDING,
-                        'rest': ActionType.IDLE
-                    }
-                    new_action = mapping.get(follower.assigned_task, ActionType.WANDERING)
-                    follower._change_action(new_action)
                     assigned_count += 1
+                    logger.info(f"📢 {self.member_id} → {follower.member_id}: Neue Aufgabe '{task['type']}'")
+                    
         if assigned_count > 0:
-            logger.info(f"📢 Leader {self.member_id} broadcastete Aufgaben an {assigned_count} Untertanen")
+            logger.info(f"� {self.member_id} verteilte {assigned_count} Aufgaben (Holz: {wood_collectors}, Stein: {stone_collectors})")
     
     def _calculate_reward(self, world_state: Dict[str, Any]) -> float:
         """Berechne Belohnung für Reinforcement Learning"""
@@ -1283,21 +1345,19 @@ class TribeAIMember:
         """Aktive Holzsuche und -abbau mit realistischen Arbeitszeiten"""
         # AKTIVE SUCHE: Finde und gehe zu Bäumen
         if hasattr(self, '_tribe_system') and hasattr(self._tribe_system, 'tree_system'):
-            target_tree = self._find_nearest_resource('wood')
+            if not self.current_resource_target or not hasattr(self.current_resource_target, 'alive'):
+                self.current_resource_target = self._find_nearest_resource('wood')
             
-            if target_tree:
+            if self.current_resource_target:
                 # Aktuelle Position und Ziel als Vektoren
                 my_pos = pygame.Vector2(self.position)
-                tree_pos = pygame.Vector2(target_tree.x, target_tree.y)
+                tree_pos = pygame.Vector2(self.current_resource_target.x, self.current_resource_target.y)
                 distance = (tree_pos - my_pos).length()
                 
-                if distance > 60:  # Zu weit weg -> Gehe zum Baum
-                    self._move_to_resource(target_tree)
-                    if not hasattr(self, '_last_move_log'):
-                        self._last_move_log = 0
-                    if time.time() - self._last_move_log > 2.0:
-                        logger.info(f"🚶 {self.member_id} bewegt sich zu Baum (Distanz: {distance:.0f})")
-                        self._last_move_log = time.time()
+                if distance > 40:  # Reduzierter Abstand für bessere Interaktion
+                    self._move_to_resource(self.current_resource_target)
+                    # Update last productive time while moving to resource
+                    self._last_productive_time = time.time()
                 else:  # Nah genug -> Fälle Baum
                     # Arbeits-Timer für realistische Geschwindigkeit
                     if not hasattr(self, '_work_timer'):
@@ -1315,10 +1375,12 @@ class TribeAIMember:
                         
                     # Holz sammeln wenn fertig
                     if self._work_timer >= 100:
-                        if target_tree:
-                            self._tribe_system.tree_system.remove_tree(target_tree)
-                            self.inventory.add_item('wood', 1)
-                            logger.info(f"✅ {self.member_id} hat erfolgreich Holz gesammelt!")
+                        if self.current_resource_target and hasattr(self.current_resource_target, 'alive'):
+                            self._tribe_system.tree_system.remove_tree(self.current_resource_target)
+                            wood_collected = random.randint(3, 6)  # Holz erhalten
+                            self._collect_resource('wood', wood_collected)
+                            logger.info(f"✅ {self.member_id} hat erfolgreich {wood_collected} Holz gesammelt!")
+                            self.current_resource_target = None  # Reset target
                         self._work_timer = 0  # Reset für nächsten Baum
                     
                     self._work_timer += 0.016  # dt (~60fps)
@@ -1328,35 +1390,34 @@ class TribeAIMember:
                     base_interval = random.uniform(2.0, 3.5)
                     work_interval = base_interval / efficiency  # Höhere Effizienz = schneller
                     
-                    if self._work_timer >= work_interval:
+                    if self._work_timer >= work_interval and self.current_resource_target:
                         # Reset timer für nächsten Schlag
                         self._work_timer = 0
                         
                         # Schade dem Baum (simuliere Angriff)
-                        wood_pos = target_tree.take_damage(25)  # Standard Schaden
-                        self._add_work_fatigue(0.08)  # Arbeit macht müde
+                        if hasattr(self.current_resource_target, 'take_damage'):
+                            wood_pos = self.current_resource_target.take_damage(25)  # Standard Schaden
+                            self._add_work_fatigue(0.08)  # Arbeit macht müde
                         
-                        if wood_pos:  # Baum wurde gefällt
-                            wood_collected = random.randint(3, 6)  # Holz erhalten
-                            self._collect_resource('wood', wood_collected)  # 📦 NEUES SYSTEM
-                            self.energy = max(0.1, self.energy - 0.05)
-                            
-                            if self.is_leader:
-                                logger.info(f"🪓 Anführer {self.member_id} fällt Baum (+{wood_collected} Holz)")
-                            else:
-                                logger.info(f"🪓 Untertan {self.member_id} fällt Baum (+{wood_collected} Holz)")
+                            if wood_pos:  # Baum wurde gefällt
+                                wood_collected = random.randint(3, 6)  # Holz erhalten
+                                self._collect_resource('wood', wood_collected)  # 📦 NEUES SYSTEM
+                                self.energy = max(0.1, self.energy - 0.05)
                                 
-                            # Nach dem Fällen: Suche neuen Baum oder mache Pause
-                            self._set_goal('find_wood')
-                        else:
-                            # Baum nur beschädigt, weitermachen
-                            if self.is_leader:
-                                logger.info(f"🪓 Anführer {self.member_id} schlägt Baum (HP: {target_tree.current_hp})")
+                                if self.is_leader:
+                                    logger.info(f"🪓 Anführer {self.member_id} fällt Baum (+{wood_collected} Holz)")
+                                else:
+                                    logger.info(f"🪓 Untertan {self.member_id} fällt Baum (+{wood_collected} Holz)")
+                                    
+                                self.current_resource_target = None
                             else:
-                                logger.info(f"🪓 Untertan {self.member_id} schlägt Baum (HP: {target_tree.current_hp})")
-                    elif target_tree.alive:
-                        # Baum nur beschädigt, nicht gefällt
-                        self.energy = max(0.1, self.energy - 0.01)
+                                # Baum nur beschädigt, weitermachen
+                                if self.is_leader:
+                                    logger.info(f"🪓 Anführer {self.member_id} schlägt Baum (HP: {self.current_resource_target.current_hp})")
+                                else:
+                                    logger.info(f"🪓 Untertan {self.member_id} schlägt Baum (HP: {self.current_resource_target.current_hp})")
+                        else:
+                            self.current_resource_target = None  # Ungültiges Ziel
             else:
                 # Kein Baum gefunden - suche in größerem Radius oder wechsle Aufgabe
                 if not self.is_leader:
@@ -1371,61 +1432,73 @@ class TribeAIMember:
     
     def _handle_stone_mining(self, world_state: Dict[str, Any]):
         """Aktive Steinsuche und -abbau mit realistischen Arbeitszeiten"""
-        # AKTIVE SUCHE: Finde und gehe zu Steinen/Erzen
-        if hasattr(self, '_tribe_system') and hasattr(self._tribe_system, 'mining_system'):
-            target_resource = self._find_nearest_resource('stone')
+        if not hasattr(self, '_tribe_system') or not hasattr(self._tribe_system, 'mining_system'):
+            return
+
+        # Verwende bestehende Ressource oder finde neue
+        if not self.current_resource_target or getattr(self.current_resource_target, 'depleted', True):
+            self.current_resource_target = self._find_nearest_resource('stone')
+            if self.current_resource_target:
+                logger.info(f"🔍 {self.member_id} hat neue Stein-Ressource gefunden")
             
-            if target_resource:
-                # Aktuelle Position und Ziel als Vektoren
-                my_pos = pygame.Vector2(self.position)
-                stone_pos = pygame.Vector2(target_resource.x, target_resource.y)
-                distance = (stone_pos - my_pos).length()
-                
-                if distance > 60:  # Zu weit weg -> Gehe zur Ressource
-                    self._move_to_resource(target_resource)
-                    if not hasattr(self, '_last_move_log'):
-                        self._last_move_log = 0
-                    if time.time() - self._last_move_log > 2.0:
-                        logger.info(f"🚶 {self.member_id} bewegt sich zu Stein (Distanz: {distance:.0f})")
-                        self._last_move_log = time.time()
-                else:  # Nah genug -> Baue Stein ab
-                    # Arbeits-Timer für realistische Geschwindigkeit
-                    if not hasattr(self, '_mining_timer'):
-                        self._mining_timer = 0
-                        logger.info(f"⛏️ {self.member_id} beginnt mit dem Steinabbau")
-                    
-                    # Arbeits-Timer für realistischen Fortschritt
-                    self._mining_timer += 1
-                    if not hasattr(self, '_last_work_log'):
-                        self._last_work_log = 0
-                        
-                    if time.time() - self._last_work_log > 5.0:
-                        logger.info(f"⛏️ {self.member_id} baut weiter Stein ab... ({self._mining_timer}/150)")
-                        self._last_work_log = time.time()
-                        
-                    # Stein sammeln wenn fertig
-                    if self._mining_timer >= 150:  # Steinabbau dauert länger als Holz
-                        if target_resource:
-                            self._tribe_system.mining_system.remove_resource(target_resource)
-                            self.inventory.add_item('stone', 1)
-                            logger.info(f"✅ {self.member_id} hat erfolgreich Stein gesammelt!")
-                        self._mining_timer = 0  # Reset für nächsten Stein
-                        self._add_work_fatigue(0.12)  # Bergbau ist anstrengender als Holzfällen
-                        
-                        # Ressource wurde erfolgreich abgebaut - suche neue
-                        self.energy = max(0.1, self.energy - 0.06)
-                        self._set_goal('find_stone')
+        if self.current_resource_target:
+            # Aktuelle Position und Ziel als Vektoren
+            my_pos = pygame.Vector2(self.position)
+            if hasattr(self.current_resource_target, 'x') and hasattr(self.current_resource_target, 'y'):
+                stone_pos = pygame.Vector2(self.current_resource_target.x, self.current_resource_target.y)
             else:
-                # Keine Ressource gefunden - suche weiter
-                if not self.is_leader:
-                    self._wander_to_find_resources('stone')
-        
-        # Fallback: Simuliere Stein sammeln wenn keine echten Ressourcen
-        elif random.random() < 0.25:  # Virtueller Stein
-            stone_collected = random.randint(1, 3)
+                logger.warning(f"⚠️ {self.member_id}: Ungültiges Ressourcenziel")
+                self.current_resource_target = None
+                return
+            
+            distance = (stone_pos - my_pos).length()
+            
+            if distance > 40:  # Reduzierter Abstand für bessere Interaktion
+                self._move_to_resource(self.current_resource_target)
+                self._last_productive_time = time.time()  # Update productive time while moving
+            else:  # Nah genug -> Baue Stein ab
+                if not hasattr(self, '_mining_timer'):
+                    self._mining_timer = 0
+                    logger.info(f"⛏️ {self.member_id} beginnt mit dem Steinabbau")
+                
+                # Arbeits-Timer für realistischen Fortschritt
+                self._mining_timer += 1
+                # Aktualisiere Mining-Timer und sammle Ressourcen
+                if not hasattr(self, '_last_work_log'):
+                    self._last_work_log = 0
+                    
+                if time.time() - self._last_work_log > 5.0:
+                    logger.info(f"⛏️ {self.member_id} baut weiter Stein ab... ({self._mining_timer}/150)")
+                    self._last_work_log = time.time()
+                    
+                # Stein sammeln wenn fertig
+                if self._mining_timer >= 150:  # Steinabbau dauert länger als Holz
+                    if self.current_resource_target:
+                        # Entferne Ressource und sammle sie
+                        stone_collected = random.randint(2, 4)  # Etwas weniger als Holz
+                        self._collect_resource('stone', stone_collected)
+                        
+                        # Markiere Ressource als abgebaut
+                        if hasattr(self.current_resource_target, 'depleted'):
+                            self.current_resource_target.depleted = True
+                        
+                        logger.info(f"✅ {self.member_id} hat erfolgreich {stone_collected} Stein gesammelt!")
+                        self.current_resource_target = None  # Suche neue Ressource
+                    
+                    self._mining_timer = 0
+                    self._add_work_fatigue(0.12)  # Bergbau ist anstrengender als Holzfällen
+                    self.energy = max(0.1, self.energy - 0.06)
+        else:
+            # Keine Ressource gefunden - suche in der Umgebung
+            self._random_small_movement()  # Kleine Bewegung um neue Ressourcen zu finden
+            
+        # Fallback: Simuliere Stein sammeln wenn kein echtes Mining-System
+        if random.random() < 0.15:  # Reduzierte Chance für virtuelle Ressourcen
+            stone_collected = random.randint(1, 2)  # Weniger virtuelle Ressourcen
             self._collect_resource('stone', stone_collected)
             world_state['resources_collected'] = world_state.get('resources_collected', 0) + stone_collected
             self.energy = max(0.1, self.energy - 0.04)
+            logger.info(f"💎 {self.member_id} hat {stone_collected} Stein gefunden (Simulation)")
     
     def _handle_wandering(self, world_state: Dict[str, Any]):
         """Natürliche Schwarmbewegung - keine Formation"""
@@ -1571,40 +1644,75 @@ class TribeAIMember:
         """Finde nächste verfügbare Ressource mit besserer Distanzberechnung"""
         if not hasattr(self, '_tribe_system'):
             return None
-            
-        # Initialisiere Such-Timer wenn nötig
+
+        # Cache für aktuelle Ressource
+        if hasattr(self, 'current_resource_target') and self.current_resource_target:
+            if resource_type == 'wood' and hasattr(self.current_resource_target, 'alive') and self.current_resource_target.alive:
+                return self.current_resource_target
+            if resource_type == 'stone' and not getattr(self.current_resource_target, 'depleted', True):
+                return self.current_resource_target
+
+        # Initialisiere Such-Timer
         if not hasattr(self, '_last_resource_search'):
             self._last_resource_search = {}
         if resource_type not in self._last_resource_search:
             self._last_resource_search[resource_type] = 0
-            
-        # Verhindere zu häufige Suchen
+
         current_time = time.time()
-        if current_time - self._last_resource_search[resource_type] < 2.0:  # Nur alle 2 Sekunden suchen
+        if current_time - self._last_resource_search[resource_type] < 0.5:
             return None
             
         self._last_resource_search[resource_type] = current_time
-        
-        search_radius = 1200  # größerer Radius
-        available_resources = []
         my_pos = pygame.Vector2(self.position)
+        nearest_resource = None
+        min_distance = float('inf')
+
+        # Ressourcen je nach Typ suchen
+        if resource_type == 'wood' and hasattr(self._tribe_system, 'tree_system'):
+            trees = self._tribe_system.tree_system.trees  # Direkter Zugriff auf Bäume
+            for tree in trees:
+                if hasattr(tree, 'alive') and tree.alive:
+                    tree_pos = pygame.Vector2(tree.x, tree.y)
+                    dist = my_pos.distance_to(tree_pos)
+                    if dist < min_distance:
+                        min_distance = dist
+                        nearest_resource = tree
+
+        elif resource_type == 'stone' and hasattr(self._tribe_system, 'mining_system'):
+            stones = self._tribe_system.mining_system.resources
+            for stone in stones:
+                if not getattr(stone, 'depleted', False):
+                    # Behandle MineableResource Objekte
+                    if hasattr(stone, 'x') and hasattr(stone, 'y'):
+                        stone_pos = pygame.Vector2(stone.x, stone.y)
+                    else:
+                        # Fallback für andere Formate
+                        continue
+                        
+                    dist = my_pos.distance_to(stone_pos)
+                    if dist < min_distance:
+                        min_distance = dist
+                        nearest_resource = stone
+
+        if min_distance < 800:  # Maximaler Suchradius
+            logger.info(f"🔍 {self.member_id}: {resource_type} gefunden (Distanz: {min_distance:.0f})")
+            return nearest_resource
 
         if resource_type == 'wood' and hasattr(self._tribe_system, 'tree_system'):
+            available_resources = []
             for tree in self._tribe_system.tree_system.trees:
                 if tree.alive:
                     tree_pos = pygame.Vector2(tree.x, tree.y)
                     distance = (tree_pos - my_pos).length()
-                    if distance <= search_radius:
-                        available_resources.append((tree, distance))
-                        
+                    available_resources.append((tree, distance))
+
         elif resource_type == 'stone' and hasattr(self._tribe_system, 'mining_system'):
+            available_resources = []
             for res in self._tribe_system.mining_system.resources:
                 if res.alive and res.resource_type == 'stone':
                     res_pos = pygame.Vector2(res.x, res.y)
                     distance = (res_pos - my_pos).length()
-                    if distance <= search_radius:
-                        available_resources.append((res, distance))
-                        available_resources.append((res, distance))
+                    available_resources.append((res, distance))
 
         if not available_resources:
             if not hasattr(self, '_last_search_fail_log'):
@@ -1639,10 +1747,18 @@ class TribeAIMember:
     
     def _move_to_resource(self, resource):
         """Setzt die Geschwindigkeit, um sich zu einer Ressource oder einem NPC zu bewegen."""
-        if hasattr(resource, 'position'):
+        # Prüfe ob es eine gültige Ressource ist
+        if not resource:
+            return
+            
+        # Bestimme Zielposition
+        if hasattr(resource, 'position'):  # NPC mit position Attribut
             target_pos = pygame.Vector2(resource.position.x, resource.position.y)
-        else:
+        elif hasattr(resource, 'x') and hasattr(resource, 'y'):  # Ressource mit x,y Attributen
             target_pos = pygame.Vector2(resource.x, resource.y)
+        else:
+            logger.warning(f"⚠️ {self.member_id}: Ungültiges Bewegungsziel")
+            return
 
         if not hasattr(self, '_last_movement_log'):
             self._last_movement_log = 0
@@ -1655,12 +1771,14 @@ class TribeAIMember:
             direction = direction.normalize()
             self.velocity = direction * self.max_speed
             if time.time() - self._last_movement_log > 1.0:
-                logger.info(f"🚶 {self.member_id}: Bewegt sich zu {resource.__class__.__name__} (Distanz: {distance:.0f})")
+                resource_type = "Stein" if isinstance(resource, tuple) else resource.__class__.__name__
+                logger.info(f"🚶 {self.member_id}: Bewegt sich zu {resource_type} (Distanz: {distance:.0f})")
                 self._last_movement_log = time.time()
         else:
             self.velocity = pygame.Vector2(0, 0)
             if not hasattr(self, '_arrived_logged'):
-                logger.info(f"🎯 {self.member_id}: An Ressource angekommen ({resource.__class__.__name__})")
+                resource_type = "Stein" if isinstance(resource, tuple) else resource.__class__.__name__
+                logger.info(f"🎯 {self.member_id}: An Ressource angekommen ({resource_type})")
                 self._arrived_logged = True
             dt = 0.016  # ~60fps
             new_pos = current_pos + (self.velocity * dt)
