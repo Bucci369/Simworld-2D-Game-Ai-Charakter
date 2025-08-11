@@ -14,10 +14,22 @@ venv.bak/
 # Game specific
 *.log
 *.tmp
+saved_world.json
+
+# Large 3D assets (not needed for gameplay)
+*.glb
+*.gltf
+*.bin
 
 # macOS
 .DS_Store
 .DS_Store?
+._*
+
+# Backup files
+*Kopie.png
+*Kopie.*
+*_backup.*
 ._*
 .Spotlight-V100
 .Trashes
