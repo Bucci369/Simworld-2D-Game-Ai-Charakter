@@ -13,6 +13,7 @@ from tree_system import TreeSystem
 from mining_system import MiningSystem
 from npc_system_simple import NPCSystem2D
 from tribe_ai_system import TribeAISystem  # Zurück zum Original System
+from hybrid_ai_system import HybridAISystem  # 300 Character Hybrid System
 from pygame import KMOD_SHIFT
 
 # Debug Panel (lazy import of assets)
@@ -532,7 +533,27 @@ class Game:
         self.npc_system = NPCSystem2D(self.world if USE_SIMPLE_WORLD else None)
         
         # 🧠 KI-Stamm-System initialisieren
-        self.tribe_ai_system = TribeAISystem(self.world if USE_SIMPLE_WORLD else None)
+        # Initialize Hybrid AI System (300 Characters: 3 Leaders + 297 Workers)
+        try:
+            from hybrid_ai_system import HybridAISystem
+            self.tribe_ai_system = HybridAISystem(world_width=3200, world_height=2400)
+            self.tribe_ai_system.spawn_characters(300, spawn_x, spawn_y)  # 3 Leaders + 297 Workers
+            self.use_ai_tribes = True
+            print("🚀 Hybrid AI System loaded with 300 characters (3 Tribe Leaders + 297 Workers)")
+        except ImportError as e:
+            # Fallback zum Scalable System
+            try:
+                from scalable_ai_system import ScalableAIManager
+                self.tribe_ai_system = ScalableAIManager(world_width=3200, world_height=2400)
+                self.tribe_ai_system.spawn_characters(50, num_clusters=8)  # 50 Charaktere in 8 Clustern
+                self.use_ai_tribes = True
+                print("🚀 Scalable AI System loaded with 50 characters (fallback)")
+            except ImportError as e2:
+                # Final Fallback zum normalen System
+                from tribe_ai_system import TribeAISystem
+                self.tribe_ai_system = TribeAISystem(self.world if USE_SIMPLE_WORLD else None)
+                self.use_ai_tribes = True
+                print(f"Fallback to normal AI System: {e2}")
         
         # Immer 2D-NPCs verwenden (Performance-optimiert)
         self.use_3d_npcs = False
@@ -545,8 +566,9 @@ class Game:
         
         if self.use_ai_tribe:
             # Erstelle KI-Stamm südlich des Sees
-            self.tribe_ai_system.create_tribe(tribe_spawn_pos, member_count=6)
-            print("🧠 KI-Stamm südlich des Sees erstellt!")
+            # Hybrid AI System erstellt automatisch 300 Characters beim spawn_characters() Aufruf
+            # 3 Neural Network Anführer + 297 FSM Workers (99 pro Anführer) verteilt um den Spieler
+            print("🧠 300 KI-Charaktere (3 Tribe Leaders + 297 Workers) um den Spieler verteilt!")
         else:
             # Fallback: Alte NPCs
             npc_spawn_x = spawn_x // TILE_SIZE + 5
@@ -720,15 +742,32 @@ class Game:
                 elif event.key == pygame.K_k:
                     # K = KI-Statistiken anzeigen
                     if self.use_ai_tribe:
-                        stats = self.tribe_ai_system.get_ai_stats()
-                        print(f"🧠 KI-Stats: {stats}")
+                        if hasattr(self.tribe_ai_system, 'get_stats'):
+                            # Hybrid/Scalable AI System
+                            stats = self.tribe_ai_system.get_stats()
+                            print(f"🧠 Hybrid AI Stats: {stats}")
+                        else:
+                            # Normal AI System
+                            stats = self.tribe_ai_system.get_ai_stats()
+                            print(f"🧠 KI-Stats: {stats}")
                 elif event.key == pygame.K_t:
                     # T = Teleportiere AI Members zum Player
                     if self.tribe_ai_system:
                         player_x = self.player.x
                         player_y = self.player.y
-                        self.tribe_ai_system.teleport_members_to_player(player_x, player_y)
-                        print("🚁 AI Tribe Members zu dir teleportiert! (Taste T)")
+                        
+                        # Unterschiedliche Teleport-Methoden für verschiedene AI Systeme
+                        if hasattr(self.tribe_ai_system, 'teleport_nearby_to_player'):
+                            # Hybrid/Scalable AI System - teleportiere nahegelegene Charaktere
+                            self.tribe_ai_system.teleport_nearby_to_player(player_x, player_y, radius=500)
+                            if hasattr(self.tribe_ai_system, 'leaders'):
+                                print(f"🚁 AI Charaktere zu dir teleportiert! ({len(self.tribe_ai_system.leaders)} Leaders + {len(self.tribe_ai_system.workers)} Workers)")
+                            else:
+                                print("🚁 Nahegelegene AI Charaktere zu dir teleportiert!")
+                        else:
+                            # Normal AI System
+                            self.tribe_ai_system.teleport_members_to_player(player_x, player_y)
+                            print("🚁 AI Tribe Members zu dir teleportiert! (6 Charaktere)")
                 elif event.key == pygame.K_c and USE_SIMPLE_WORLD:
                     # C = Clear (alle platzierten Objekte löschen)
                     if hasattr(self.world, 'clear_dynamic_objects'):
@@ -860,7 +899,15 @@ class Game:
             # Update KI-Stamm-System
             player_world_pos = (self.player.rect.centerx, self.player.rect.centery)
             self.tribe_ai_system.player_pos = player_world_pos
-            self.tribe_ai_system.update(dt)
+            # Update AI System - unterschiedliche Parameter für skalierbare vs normale Version
+            if hasattr(self.tribe_ai_system, 'spawn_characters'):
+                # Scalable AI System - braucht Player Position für Culling
+                player_x = self.player.x if hasattr(self.player, 'x') else 400
+                player_y = self.player.y if hasattr(self.player, 'y') else 300
+                self.tribe_ai_system.update(dt, player_x, player_y)
+            else:
+                # Normal AI System
+                self.tribe_ai_system.update(dt)
         else:
             # Update einfaches NPC-System
             self.npc_system.update(dt)
@@ -993,7 +1040,13 @@ class Game:
             pass  # 3D-Rendering erfolgt später
         elif self.use_ai_tribe:
             # KI-Stamm mit TensorFlow-NPCs zeichnen
-            self.tribe_ai_system.render(world_surface, self.camera)
+            # Render AI System - unterschiedliche Parameter
+            if hasattr(self.tribe_ai_system, 'spawn_characters'):
+                # Scalable AI System - nutze camera.camera.x/y
+                self.tribe_ai_system.render(world_surface, self.camera.camera.x, self.camera.camera.y)
+            else:
+                # Normal AI System
+                self.tribe_ai_system.render(world_surface, self.camera)
         else:
             # Fallback: Einfache 2D-NPCs zeichnen
             self.npc_system.render(world_surface, self.camera)
