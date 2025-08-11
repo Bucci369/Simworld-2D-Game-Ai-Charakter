@@ -1,0 +1,30 @@
+{
+  "source_image": "assets/Pixel Crawler - Free Pack/Environment/Props/Static/Farm.png",
+  "selections": [
+    [
+      16,
+      208,
+      16,
+      18
+    ],
+    [
+      0,
+      208,
+      16,
+      18
+    ],
+    [
+      126,
+      175,
+      19,
+      19
+    ],
+    [
+      144,
+      175,
+      16,
+      19
+    ]
+  ],
+  "total_items": 4
+}
