@@ -41,33 +41,14 @@ class WoodDrop:
         self.y = self.original_y + bounce_offset
         
     def draw(self, screen, camera_rect):
-        """Zeichne Wood-Drop mit Glow-Effekt"""
+        """Zeichne Wood-Drop mit Bounce-Effekt"""
         if self.collected:
             return
             
         screen_x = self.x - camera_rect.left
         screen_y = self.y - camera_rect.top
         
-        # Glow-Effekt (leuchtender Kreis dahinter)
-        glow_radius = int(15 + 5 * self.glow_intensity)
-        glow_color = (255, 220, 100, int(60 * self.glow_intensity))  # Warmes gelbes Licht
-        
-        # Erstelle Glow-Surface
-        glow_size = glow_radius * 2
-        glow_surface = pygame.Surface((glow_size, glow_size), pygame.SRCALPHA)
-        
-        # Gradient-Glow
-        for i in range(glow_radius, 0, -2):
-            alpha = int((60 * self.glow_intensity) * (i / glow_radius))
-            color = (255, 220, 100, alpha)
-            pygame.draw.circle(glow_surface, color, (glow_radius, glow_radius), i)
-        
-        # Zeichne Glow zentriert unter Wood
-        glow_x = screen_x + self.wood_image.get_width()//2 - glow_radius
-        glow_y = screen_y + self.wood_image.get_height()//2 - glow_radius
-        screen.blit(glow_surface, (glow_x, glow_y))
-        
-        # Zeichne Wood-Sprite
+        # Zeichne Wood-Sprite (mit bounce)
         screen.blit(self.wood_image, (screen_x, screen_y))
         
     def is_mouse_over(self, mouse_world_pos):
@@ -131,8 +112,8 @@ class Tree:
         
         # Baum gefällt?
         if self.current_hp <= 0:
-            self.fell_tree()
-            return True
+            wood_pos = self.fell_tree()
+            return wood_pos  # Gib Wood-Position zurück statt nur True
         
         return False
         
@@ -169,7 +150,7 @@ class Tree:
         
         self.show_hp_bar = False
         
-        # Gib Position für Wood-Drop zurück (rechts neben dem Stumpf)
+        # Erstelle Wood-Drop direkt hier (nicht nur Position zurückgeben)
         wood_x = self.x + stump_width + 10  # 10 Pixel Abstand
         wood_y = self.y + stump_height - 20  # Etwas über dem Boden
         return (wood_x, wood_y)
@@ -405,15 +386,14 @@ class TreeSystem:
                 distance = math.sqrt((tree.x - player_x)**2 + (tree.y - player_y)**2)
                 
                 if distance <= 50:
-                    was_felled = tree.take_damage(25)  # 25% Schaden
+                    result = tree.take_damage(25)  # 25% Schaden
                     
                     # Wenn Baum gefällt wurde, erstelle Wood-Drop
-                    if was_felled:
-                        wood_pos = tree.fell_tree()
-                        if wood_pos:
-                            wood_drop = WoodDrop(wood_pos[0], wood_pos[1], self.wood_image)
-                            self.wood_drops.append(wood_drop)
-                            print("🪵 Holz ist erschienen! Klicke darauf zum Sammeln.")
+                    if result and result != False:  # result ist entweder False oder (x, y) Position
+                        wood_pos = result
+                        wood_drop = WoodDrop(wood_pos[0], wood_pos[1], self.wood_image)
+                        self.wood_drops.append(wood_drop)
+                        print("🪵 Holz ist erschienen! Klicke darauf zum Sammeln.")
                     
                     return True
                 else:

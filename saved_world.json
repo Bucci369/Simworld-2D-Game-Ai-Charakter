@@ -1,0 +1,13 @@
+{
+  "dynamic_objects": [
+    {
+      "image_name": "House.png",
+      "x": 2585,
+      "y": 1809
+    }
+  ],
+  "player_pos": [
+    1971,
+    1818
+  ]
+}

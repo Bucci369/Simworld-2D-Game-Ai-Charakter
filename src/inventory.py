@@ -122,6 +122,32 @@ class Inventory:
         else:
             icons['wood'] = self._create_fallback_icon((139, 69, 19))  # Braun
         
+        # Stone-Icon (stein_barren.png)
+        stone_path = os.path.join(base_dir, 'assets', 'Outdoor decoration', 'stein_barren.png')
+        if os.path.exists(stone_path):
+            try:
+                img = pygame.image.load(stone_path).convert_alpha()
+                icons['stone'] = pygame.transform.scale(img, (self.slot_size - 8, self.slot_size - 8))
+                print("Stein-Icon geladen!")
+            except Exception as e:
+                print(f"Fehler beim Laden des Stein-Icons: {e}")
+                icons['stone'] = self._create_fallback_icon((128, 128, 128))  # Grau
+        else:
+            icons['stone'] = self._create_fallback_icon((128, 128, 128))  # Grau
+        
+        # Gold-Icon (gold_barren.png)
+        gold_path = os.path.join(base_dir, 'assets', 'Outdoor decoration', 'gold_barren.png')
+        if os.path.exists(gold_path):
+            try:
+                img = pygame.image.load(gold_path).convert_alpha()
+                icons['gold'] = pygame.transform.scale(img, (self.slot_size - 8, self.slot_size - 8))
+                print("Gold-Icon geladen!")
+            except Exception as e:
+                print(f"Fehler beim Laden des Gold-Icons: {e}")
+                icons['gold'] = self._create_fallback_icon((255, 215, 0))  # Gold-gelb
+        else:
+            icons['gold'] = self._create_fallback_icon((255, 215, 0))  # Gold-gelb
+        
         return icons
     
     def _create_fallback_icon(self, color):

@@ -187,12 +187,29 @@ class SimpleWorld:
                     continue
             self.trees.append((tx, ty))
         self.trees.sort(key=lambda p: p[1])  # painter's order
+        
+        # Load decorative sprites
+        self._load_decoration_sprites()
+        
+        # Generate decorative objects on grass areas
+        self._generate_decorations()
+        
         # Vom Debug Panel platzierte dynamische Objekte
         self.dynamic_objects = []  # (image, x, y)
 
     def render(self, surface: pygame.Surface, camera_rect: pygame.Rect):
         surface.blit(self.background, (-camera_rect.left, -camera_rect.top))
         view_rect = camera_rect
+        
+        # Draw decorations first (on ground level)
+        if hasattr(self, 'decorations'):
+            for decoration in self.decorations:
+                dx, dy = decoration['x'], decoration['y']
+                sprite = decoration['sprite']
+                rect = pygame.Rect(dx, dy, sprite.get_width(), sprite.get_height())
+                if rect.colliderect(view_rect):
+                    surface.blit(sprite, (dx - camera_rect.left, dy - camera_rect.top))
+        
         # Strukturen (Haus) vor Bäumen oder nach Bedarf sortieren
         if self.structures:
             for (sx, sy) in self.structures:
@@ -310,3 +327,96 @@ class SimpleWorld:
                 'image_name': image_name
             }
             self.dynamic_objects.append(obj_data)
+            
+    def _load_decoration_sprites(self):
+        """Load decorative sprites (pilz, blume, stone, gold)"""
+        base_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'assets', 'Outdoor decoration')
+        
+        self.decoration_sprites = {}
+        
+        # List of decorations to load
+        decoration_files = ['pilz.png', 'blume.png', 'blume1.png', 'stone.png', 'gold.png']
+        
+        for filename in decoration_files:
+            filepath = os.path.join(base_dir, filename)
+            if os.path.exists(filepath):
+                try:
+                    sprite = pygame.image.load(filepath).convert_alpha()
+                    
+                    # Stone und Gold größer machen
+                    if filename in ['stone.png', 'gold.png']:
+                        original_size = sprite.get_size()
+                        scale_factor = 2.5  # 2.5x größer
+                        new_width = int(original_size[0] * scale_factor)
+                        new_height = int(original_size[1] * scale_factor)
+                        sprite = pygame.transform.scale(sprite, (new_width, new_height))
+                        print(f"🔍 {filename} skaliert: {original_size} → {(new_width, new_height)}")
+                    
+                    self.decoration_sprites[filename] = sprite
+                    print(f"✅ Loaded decoration: {filename}")
+                except Exception as e:
+                    print(f"❌ Failed to load {filename}: {e}")
+            else:
+                print(f"⚠️ Decoration file not found: {filename}")
+                
+    def _generate_decorations(self):
+        """Generate decorative objects on grass areas"""
+        if not hasattr(self, 'decoration_sprites'):
+            return
+            
+        self.decorations = []
+        
+        # Distribution settings
+        decoration_densities = {
+            'pilz.png': 0.003,    # Pilze seltener
+            'blume.png': 0.006,   # Blumen häufiger  
+            'blume1.png': 0.006,  # Blumen häufiger
+            'stone.png': 0.004,   # Steine mittel
+            'gold.png': 0.001     # Gold sehr selten
+        }
+        
+        for decoration_name, density in decoration_densities.items():
+            if decoration_name not in self.decoration_sprites:
+                continue
+                
+            sprite = self.decoration_sprites[decoration_name]
+            wanted_count = int(self.area_width_tiles * self.area_height_tiles * density)
+            
+            max_attempts = wanted_count * 10
+            attempts = 0
+            placed = 0
+            
+            while placed < wanted_count and attempts < max_attempts:
+                attempts += 1
+                
+                # Random position
+                x = random.randint(0, self.width - sprite.get_width())
+                y = random.randint(0, self.height - sprite.get_height())
+                
+                # Check if position is on grass (not water, path, farm)
+                tile_x = x // TILE_SIZE
+                tile_y = y // TILE_SIZE
+                
+                if 0 <= tile_x < self.area_width_tiles and 0 <= tile_y < self.area_height_tiles:
+                    code = self.overlay[tile_y][tile_x]
+                    
+                    # Only place on grass (None) areas
+                    if code is None:
+                        # Check distance from trees (avoid placing too close)
+                        too_close_to_tree = False
+                        for tree_x, tree_y in self.trees:
+                            distance = ((x - tree_x) ** 2 + (y - tree_y) ** 2) ** 0.5
+                            if distance < 32:  # Min 32px distance from trees
+                                too_close_to_tree = True
+                                break
+                                
+                        if not too_close_to_tree:
+                            self.decorations.append({
+                                'sprite': sprite,
+                                'x': x,
+                                'y': y,
+                                'name': decoration_name
+                            })
+                            placed += 1
+                            
+            print(f"🌿 Placed {placed} {decoration_name} decorations")

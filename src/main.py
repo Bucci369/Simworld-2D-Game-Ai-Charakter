@@ -10,6 +10,8 @@ from farm_ui import FarmUI
 from inventory import Inventory
 from hunger_system import HungerSystem
 from tree_system import TreeSystem
+from mining_system import MiningSystem
+from npc_system_simple import NPCSystem2D
 from pygame import KMOD_SHIFT
 
 # Debug Panel (lazy import of assets)
@@ -522,6 +524,21 @@ class Game:
         # Tree-System initialisieren
         self.tree_system = TreeSystem(self.world if USE_SIMPLE_WORLD else None)
         
+        # Mining-System initialisieren
+        self.mining_system = MiningSystem(self.world if USE_SIMPLE_WORLD else None)
+        
+        # NPC-System initialisieren (einfaches 2D-System)
+        self.npc_system = NPCSystem2D(self.world if USE_SIMPLE_WORLD else None)
+        
+        # Immer 2D-NPCs verwenden (Performance-optimiert)
+        self.use_3d_npcs = False
+        
+        # Spawne 8 NPCs in der Nähe des Spielers
+        npc_spawn_x = spawn_x // TILE_SIZE + 5  # 5 Tiles rechts vom Spieler
+        npc_spawn_y = spawn_y // TILE_SIZE + 3  # 3 Tiles unter dem Spieler
+        npc_spawn_area = (npc_spawn_x * TILE_SIZE, npc_spawn_y * TILE_SIZE)
+        self.npc_system.spawn_npc_group(npc_spawn_area, count=8, spread=80)
+        
         # Versuche gespeicherte Welt zu laden
         self.auto_load_world()
         
@@ -643,6 +660,21 @@ class Game:
                                     break
                         if not eaten:
                             print("Keine essbaren Items im Inventar!")
+                            
+                # Zoom-Steuerung mit Tasten (Bildschirm-Mitte als Zentrum)
+                elif event.key == pygame.K_PLUS or event.key == pygame.K_EQUALS:
+                    # + oder = Taste = Zoom in
+                    center_pos = (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
+                    self.camera.zoom_in(center_pos=center_pos)
+                elif event.key == pygame.K_MINUS:
+                    # - Taste = Zoom out  
+                    center_pos = (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
+                    self.camera.zoom_out(center_pos=center_pos)
+                elif event.key == pygame.K_BACKQUOTE:
+                    # ` (Backtick) Taste = Zoom zurücksetzen (statt 0 wegen Debug Panel Konflikt)
+                    center_pos = (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
+                    self.camera.set_zoom(1.0, center_pos=center_pos)
+                    print("Zoom zurückgesetzt: 100%")
                 elif event.key == pygame.K_SPACE:
                     # SPACE = Zeitraffer-Modus (5x Geschwindigkeit für Sonnen-Demo)
                     if self.game_time.time_speed == 5.0:
@@ -709,6 +741,14 @@ class Game:
                             available_height = self.debug_panel.surface.get_height() - info_panel_height
                             max_scroll = max(0, len(self.debug_panel.assets)*self.debug_panel.entry_h - available_height)
                             self.debug_panel.scroll = min(max_scroll, self.debug_panel.scroll + self.debug_panel.entry_h)
+                        continue
+                
+                # Zoom-Steuerung mit Mausrad (wenn nicht über Debug Panel)
+                mouse_pos = pygame.mouse.get_pos()
+                if event.y > 0:  # Nach oben scrollen = Zoom in
+                    self.camera.zoom_in(center_pos=mouse_pos)
+                elif event.y < 0:  # Nach unten scrollen = Zoom out
+                    self.camera.zoom_out(center_pos=mouse_pos)
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 # Zeit-UI Klicks zuerst prüfen
                 if self.game_time.handle_mouse_event(event):
@@ -724,14 +764,18 @@ class Game:
                     self.debug_panel.handle_event(event, self.screen.get_width())
                 else:
                     # Alle anderen Klicks
-                    mouse_screen = pygame.Vector2(event.pos)
-                    world_x = mouse_screen.x + self.camera.camera.left
-                    world_y = mouse_screen.y + self.camera.camera.top
+                    world_pos = self.camera.screen_to_world(event.pos)
+                    world_x, world_y = world_pos
                     mods = pygame.key.get_mods()
                     
                     # Prüfe zuerst Baum-Klicks
                     if self.tree_system.handle_click((world_x, world_y), self.player.rect.center, self.inventory):
                         # Baum wurde geklickt - keine weitere Aktion
+                        continue
+                    
+                    # Prüfe Mining-Klicks (Stone/Gold)
+                    if self.mining_system.handle_click((world_x, world_y), self.player.rect.center, self.inventory):
+                        # Resource wurde geklickt - keine weitere Aktion
                         continue
                     elif (mods & pygame.KMOD_SHIFT) and USE_SIMPLE_WORLD and self.world:
                         # Debug Panel Platzierung
@@ -774,6 +818,12 @@ class Game:
         
         # Tree-System updaten
         self.tree_system.update(dt)
+        
+        # Mining-System updaten
+        self.mining_system.update(dt)
+        
+        # NPC-System updaten
+        self.npc_system.update(dt)
         
         # Farm-Tiles an Farming-System weitergeben
         self.farming_system.set_farm_tiles(self.farm_ui.get_farm_tiles())
@@ -867,35 +917,70 @@ class Game:
                 print("Gespeicherte Welt automatisch geladen!")
 
     def draw(self):
-        self.screen.fill((30, 30, 40))
+        # === World Surface Rendering (mit Zoom) ===
+        # Hole World Surface von der Kamera
+        world_surface = self.camera.get_world_surface()
         
-        # Basis-Szene zeichnen
+        # Basis-Szene auf World Surface zeichnen (normale Größe)
         if USE_SIMPLE_WORLD:
-            self.world.render(self.screen, self.camera.camera)
+            self.world.render(world_surface, self.camera.camera)
         else:
-            self.map.render(self.screen, self.camera.camera)
+            self.map.render(world_surface, self.camera.camera)
             
-        # Farm-Tiles als Bodentextur zeichnen (nach Basis-Welt, vor Sprites)
-        self.farm_ui.draw_farm_tiles(self.screen, self.camera)
+        # Farm-Tiles als Bodentextur zeichnen
+        self.farm_ui.draw_farm_tiles(world_surface, self.camera)
         
-        # Bäume zeichnen (vor Spieler für korrektes Layering)
-        self.tree_system.draw(self.screen, self.camera.camera)
+        # Bäume auf World Surface zeichnen
+        self.tree_system.draw(world_surface, self.camera.camera)
+        
+        # Mining-Resources auf World Surface zeichnen
+        self.mining_system.draw(world_surface, self.camera.camera)
             
+        # Sprites auf World Surface zeichnen (normale Größe)
         for sprite in self.all_sprites:
-            self.screen.blit(sprite.image, self.camera.apply_to_point(sprite.rect.topleft))
+            screen_pos = self.camera.apply_to_point(sprite.rect.topleft)
+            world_surface.blit(sprite.image, screen_pos)
             
-        # Farming-Elemente mit korrekten Assets zeichnen
-        self.farm_ui.draw_crops(self.screen, self.camera, self.farming_system.crops)
+        # Farming-Elemente auf World Surface zeichnen
+        self.farm_ui.draw_crops(world_surface, self.camera, self.farming_system.crops)
         
-        # Tiere zeichnen (nach Sprites)
-        self.farming_system.draw_animals(self.screen, self.camera)
+        # Tiere auf World Surface zeichnen
+        self.farming_system.draw_animals(world_surface, self.camera)
         
-        # Lichtsystem anwenden
+        # NPCs auf World Surface zeichnen
+        if self.use_3d_npcs:
+            # 3D-NPCs werden mit OpenGL gerendert (nach 2D-Rendering)
+            pass  # 3D-Rendering erfolgt später
+        else:
+            # Fallback: 2D-NPCs zeichnen
+            self.npc_system.draw_2d_fallback(world_surface, self.camera)
+        
+        # === Finaler Screen Rendering ===
+        # World Surface mit Zoom zum finalen Screen rendern
+        self.camera.render_world_to_screen(self.screen)
+        
+        # Lichtsystem auf finalen Screen anwenden
         self.apply_lighting()
+        
+        # UI-Elemente auf finalen Screen (nicht gezoomt)
+        # Game-Time Statusleiste (Sonne/Tag/Nacht-System)
+        self.game_time.draw_time_ui(self.screen, 10, 10)
+        
+        # Hunger-System zeichnen (Hunger-Balken)
+        self.hunger_system.draw_hunger_ui(self.screen, 10, 200)
         
         # Farm-UI zeichnen (nach Licht, aber vor anderen UIs)
         mouse_pos = pygame.mouse.get_pos()
         self.farm_ui.draw(self.screen, self.camera, mouse_pos)
+        
+        # Zoom-Info anzeigen (oben links)
+        zoom_info = self.camera.get_zoom_info()
+        zoom_text = f"Zoom: {zoom_info['zoom_percentage']}% (Mausrad/+/-/`)"
+        zoom_color = (255, 255, 255)
+        pygame.font.init()
+        font = pygame.font.Font(None, 24)
+        zoom_surface = font.render(zoom_text, True, zoom_color)
+        self.screen.blit(zoom_surface, (10, 10))
         
         # UI
         self.debug_panel.draw(self.screen)
@@ -903,14 +988,9 @@ class Game:
         # Inventar zeichnen (über allem anderen)
         self.inventory.draw(self.screen)
         
-        # Hunger-UI zeichnen (links oben)
-        self.hunger_system.draw_hunger_ui(self.screen, 10, 200)
+        # Extra Hunger-Hint falls hungrig
         if self.hunger_system.is_hungry:
             self.hunger_system.draw_eating_hint(self.screen, 10, 280)
-        
-        # Zeit-UI zeichnen als elegantes, klickbares Spielelement (oben mittig)
-        time_x = (SCREEN_WIDTH - 400) // 2  # Zentriert oben (400 = neue UI Breite)
-        self.game_time.draw_time_ui(self.screen, time_x, 10)
         
         # Zeit-Steuerungshinweise (falls Zeit nicht normal läuft)
         if self.game_time.paused or self.game_time.time_speed != 1.0:
