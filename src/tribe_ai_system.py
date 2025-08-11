@@ -1217,8 +1217,8 @@ class TribeAIMember:
                     self._wander_to_find_resources('wood')
         
         # Fallback: Simuliere Holz sammeln wenn keine echten Bäume
-        elif random.random() < 0.05:  # Niedrigere Rate für virtuelles Holz
-            wood_collected = random.randint(1, 2)
+        elif random.random() < 0.3:  # Erhöhte Rate für virtuelles Holz (30%)
+            wood_collected = random.randint(1, 3)
             self.memory.resources_collected['wood'] += wood_collected
             world_state['resources_collected'] = world_state.get('resources_collected', 0) + wood_collected
             self.energy = max(0.1, self.energy - 0.02)
@@ -1285,8 +1285,8 @@ class TribeAIMember:
                     self._wander_to_find_resources('stone')
         
         # Fallback: Simuliere Stein sammeln wenn keine echten Ressourcen
-        elif random.random() < 0.03:  # Niedrigere Rate für virtuellen Stein
-            stone_collected = random.randint(1, 2)
+        elif random.random() < 0.25:  # Erhöhte Rate für virtuellen Stein (25%)
+            stone_collected = random.randint(1, 3)
             self.memory.resources_collected['stone'] += stone_collected
             world_state['resources_collected'] = world_state.get('resources_collected', 0) + stone_collected
             self.energy = max(0.1, self.energy - 0.04)
@@ -1696,7 +1696,7 @@ class TribeAIMember:
                 self.direction = 'up'
     
     def get_current_sprite(self):
-        """Hole aktuellen Sprite mit animationen"""
+        """Hole aktuellen Sprite für Rendering"""
         if not self.sprites:
             # Fallback: farbiger Kreis mit Völker-Farbe
             size = 32
@@ -1720,59 +1720,69 @@ class TribeAIMember:
             
             pygame.draw.circle(surface, (0, 0, 0), (size//2, size//2), size//3, 2)
             
-            # Aktions-Indikator
-            if self.current_action == ActionType.WOOD_CHOPPING:
-                pygame.draw.circle(surface, (139, 69, 19), (size//2, size//4), 3)  # Braun für Holz
-            elif self.current_action == ActionType.STONE_MINING:
-                pygame.draw.circle(surface, (128, 128, 128), (size//2, size//4), 3)  # Grau für Stein
-            elif self.current_action == ActionType.HOUSE_BUILDING:
-                pygame.draw.circle(surface, (255, 215, 0), (size//2, size//4), 3)  # Gold für Hausbau
-            elif self.current_action == ActionType.COMMAND_FOLLOWERS:
-                pygame.draw.circle(surface, (255, 0, 255), (size//2, size//4), 3)  # Magenta für Befehle
-                
             return surface
         
-        # Verwende GandalfHardcore Sprites mit Animationen
-        animation_key = 'idle'  # Standard
+        # Knight-Sprites: sprites ist ein Dict mit direction -> pygame.Surface
+        # Bestimme aktuelle Richtung basierend auf Bewegung oder Standard
+        current_direction = 'down'  # Standard
         
-        # Bestimme Animation basierend auf Aktion und Bewegung
-        if self.velocity.length() > 1.0:
-            animation_key = 'walk'
-        elif self.current_action in [ActionType.WOOD_CHOPPING, ActionType.STONE_MINING, ActionType.HOUSE_BUILDING]:
-            animation_key = 'attack'  # Verwende attack-Animation für Arbeit
-        else:
-            animation_key = 'idle'
-        
-        # Fallback wenn Animation nicht vorhanden
-        if animation_key not in self.sprites:
-            if 'walk' in self.sprites:
-                animation_key = 'walk'
-            elif self.direction in self.sprites:
-                animation_key = self.direction  # Fallback zu Richtungs-basiert
+        if hasattr(self, 'velocity') and self.velocity.length() > 0.5:
+            # Bestimme Richtung basierend auf Bewegungsvektor
+            if abs(self.velocity.x) > abs(self.velocity.y):
+                current_direction = 'right' if self.velocity.x > 0 else 'left'
             else:
-                animation_key = list(self.sprites.keys())[0]  # Erster verfügbarer
+                current_direction = 'down' if self.velocity.y > 0 else 'up'
+        elif hasattr(self, 'direction'):
+            current_direction = self.direction
         
-        sprites_for_animation = self.sprites[animation_key]
+        # Hole Sprite für aktuelle Richtung
+        base_sprite = None
+        if current_direction in self.sprites:
+            sprite = self.sprites[current_direction]
+            
+            # Player System: sprites[direction] ist direkt ein pygame.Surface
+            if isinstance(sprite, pygame.Surface):
+                base_sprite = sprite
+            # Fallback für Listen-System
+            elif isinstance(sprite, list) and len(sprite) > 0:
+                base_sprite = sprite[0]
         
-        # Sicherheitscheck für leere Sprite-Liste
-        if not sprites_for_animation:
+        # Fallback: erste verfügbare Richtung
+        if not base_sprite:
+            for direction in ['down', 'left', 'right', 'up']:
+                if direction in self.sprites:
+                    sprite = self.sprites[direction]
+                    if isinstance(sprite, pygame.Surface):
+                        base_sprite = sprite
+                        break
+                    elif isinstance(sprite, list) and len(sprite) > 0:
+                        base_sprite = sprite[0]
+                        break
+        
+        if not base_sprite:
             return None
         
-        # Update Animation Timer
-        if not hasattr(self, 'anim_timer'):
-            self.anim_timer = 0.0
+        # Erstelle Farboverlay für Völker-Unterscheidung
+        colored_sprite = base_sprite.copy()
         
-        self.anim_timer += 0.1  # Zeit-basierte Animation
+        # Völker-Farben als Overlay
+        if self.tribe_color == "red":
+            # Rötlicher Schimmer
+            overlay = pygame.Surface(colored_sprite.get_size(), pygame.SRCALPHA)
+            overlay.fill((255, 100, 100, 50))  # Leichtes Rot
+            colored_sprite.blit(overlay, (0, 0), special_flags=pygame.BLEND_ADD)
+        elif self.tribe_color == "blue":
+            # Bläulicher Schimmer
+            overlay = pygame.Surface(colored_sprite.get_size(), pygame.SRCALPHA)
+            overlay.fill((100, 150, 255, 50))  # Leichtes Blau
+            colored_sprite.blit(overlay, (0, 0), special_flags=pygame.BLEND_ADD)
+        elif self.tribe_color == "green":
+            # Grünlicher Schimmer
+            overlay = pygame.Surface(colored_sprite.get_size(), pygame.SRCALPHA)
+            overlay.fill((100, 255, 100, 50))  # Leichtes Grün
+            colored_sprite.blit(overlay, (0, 0), special_flags=pygame.BLEND_ADD)
         
-        if self.anim_timer > self.anim_speed:
-            self.anim_frame = (self.anim_frame + 1) % len(sprites_for_animation)
-            self.anim_timer = 0.0
-        
-        # Sicherheitscheck für anim_frame Index
-        if self.anim_frame >= len(sprites_for_animation):
-            self.anim_frame = 0
-        
-        return sprites_for_animation[self.anim_frame]
+        return colored_sprite
 
 class TribeAISystem:
     """Haupt-KI-System für Stamm-Management"""
@@ -2019,65 +2029,84 @@ class TribeAISystem:
         return None
     
     def _load_gandalf_sprites(self, color: str):
-        """Lade GandalfHardcore Archer Sprites für ein bestimmtes Volk"""
+        """Lade Player-Sprites für alle Tribe-Mitglieder - Gleicher Körper wie Hauptcharakter"""
         try:
             import os
             base_dir = os.path.dirname(os.path.dirname(__file__))
-            sprite_path = os.path.join(base_dir, 'assets', 'GandalfHardcore Archer', 
-                                     f'GandalfHardcore Archer {color} sheet.png')
             
-            if os.path.exists(sprite_path):
+            # Verwende das gleiche Player-Sprite für alle
+            sprite_path = os.path.join(base_dir, 'assets', 'Player', 'character-grid-sprite.png')
+            
+            if not os.path.exists(sprite_path):
+                logger.error(f"❌ Player sprite nicht gefunden: {sprite_path}")
+                return None
+                
+            # === EXAKT WIE PLAYER.PY ===
+            try:
                 sheet = pygame.image.load(sprite_path).convert_alpha()
-                sprites = {}
+            except Exception:
+                return None
                 
-                # GandalfHardcore Archer Sheet-Layout analysieren
-                # Erste Reihe: Idle-Animation (5 Frames)
-                # Zweite Reihe: Walk/Run-Animation (11 Frames) 
-                # Dritte Reihe: Attack-Animation (8 Frames)
-                # Vierte + Fünfte Reihe: mehr Animationen
-                
-                frame_width = 64  # Geschätzte Breite
-                frame_height = 64  # Geschätzte Höhe
-                
-                # Extrahiere verschiedene Animationen
-                sprites['idle'] = []
-                sprites['walk'] = []
-                sprites['attack'] = []
-                
-                # Idle-Animation (erste Reihe, 5 Frames)
-                for col in range(5):
-                    x, y = col * frame_width, 0
-                    sprite = pygame.Surface((frame_width, frame_height), pygame.SRCALPHA)
-                    sprite.blit(sheet, (0, 0), (x, y, frame_width, frame_height))
-                    sprites['idle'].append(sprite)
-                
-                # Walk-Animation (zweite Reihe, erste 8 Frames)
-                for col in range(8):
-                    x, y = col * frame_width, frame_height
-                    sprite = pygame.Surface((frame_width, frame_height), pygame.SRCALPHA)
-                    sprite.blit(sheet, (0, 0), (x, y, frame_width, frame_height))
-                    sprites['walk'].append(sprite)
-                
-                # Attack-Animation (dritte Reihe, erste 6 Frames)
-                for col in range(6):
-                    x, y = col * frame_width, frame_height * 2
-                    sprite = pygame.Surface((frame_width, frame_height), pygame.SRCALPHA)
-                    sprite.blit(sheet, (0, 0), (x, y, frame_width, frame_height))
-                    sprites['attack'].append(sprite)
-                
-                # Für Richtungen - verwende die walk-Animation für alle Richtungen
-                sprites['down'] = sprites['walk']
-                sprites['up'] = sprites['walk']  
-                sprites['left'] = sprites['walk']
-                sprites['right'] = sprites['walk']
-                
-                logger.info(f"✅ GandalfHardcore {color} Sprites geladen: {len(sprites['idle'])} idle, {len(sprites['walk'])} walk")
-                return sprites
+            w, h = sheet.get_size()
+            TILE_SIZE = 32  # Player frames sind 32x32
+            cols = w // TILE_SIZE
+            rows = h // TILE_SIZE
+            
+            # Slice alle Tiles - EXAKT WIE PLAYER
+            grid = []
+            for ry in range(rows):
+                row_frames = []
+                y = ry * TILE_SIZE
+                for cx in range(cols):
+                    x = cx * TILE_SIZE
+                    frame = pygame.Surface((TILE_SIZE, TILE_SIZE), pygame.SRCALPHA)
+                    frame.blit(sheet, (0, 0), (x, y, TILE_SIZE, TILE_SIZE))
+                    
+                    # Transparente oder komplett leere Frames überspringen
+                    if pygame.mask.from_surface(frame).count() == 0:
+                        continue
+                    row_frames.append(frame)
+                if row_frames:
+                    grid.append(row_frames)
+
+            # Player Sheet Mapping - EXAKT WIE PLAYER.PY
+            PLAYER_SHEET_ROWS = {
+                'down': 0,
+                'left': 1, 
+                'right': 2,
+                'up': 3
+            }
+            PLAYER_FRAMES_PER_DIRECTION = 4
+            
+            animations = {}
+            idle_frames = {}
+            
+            # Konfiguriertes Mapping der Reihen - EXAKT WIE PLAYER
+            for direction, row_index in PLAYER_SHEET_ROWS.items():
+                if 0 <= row_index < len(grid):
+                    row_frames = grid[row_index]
+                    frames = row_frames[:PLAYER_FRAMES_PER_DIRECTION] if PLAYER_FRAMES_PER_DIRECTION else row_frames
+                    if frames:
+                        animations[direction] = frames
+                        idle_frames[direction] = frames[0]
+
+            # Fallback falls bestimmte Richtungen fehlen
+            if len(animations) < 4 and grid:
+                first = next(iter(animations.values()), grid[0])
+                for d in ['down','left','right','up']:
+                    if d not in animations:
+                        animations[d] = first
+                        idle_frames[d] = first[0]
+            
+            # Return Format GENAU WIE PLAYER - DIREKTE SURFACE-OBJEKTE
+            sprites = idle_frames  # Verwende nur idle_frames für einfaches System
+            
+            logger.info(f"✅ Player-Sprites für Tribe {color} geladen: {len(idle_frames)} Richtungen")
+            return sprites
                 
         except Exception as e:
-            logger.warning(f"Konnte GandalfHardcore {color} Sprites nicht laden: {e}")
-        
-        return None
+            logger.error(f"❌ Fehler beim Laden von Player-Sprites für {color}: {e}")
+            return None
     
     def update(self, dt: float):
         """Update des gesamten Stamm-Systems"""
