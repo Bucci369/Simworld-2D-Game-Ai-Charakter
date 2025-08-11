@@ -552,8 +552,8 @@ class NPCSystem2D:
         
         for npc in self.npcs:
             # Berechne Screen-Position basierend auf Kamera
-            screen_x = npc.position.x - camera.offset_x
-            screen_y = npc.position.y - camera.offset_y
+            screen_x = npc.position.x - camera.camera.left
+            screen_y = npc.position.y - camera.camera.top
             
             # Culling: Rendere nur sichtbare NPCs
             if (-50 <= screen_x <= screen.get_width() + 50 and 
