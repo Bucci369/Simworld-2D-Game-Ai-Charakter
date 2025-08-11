@@ -32,9 +32,9 @@ class House:
             
         self.rect = pygame.Rect(position[0], position[1], self.size[0], self.size[1])
         
-        # Bau-Anforderungen
-        self.wood_needed = 15
-        self.stone_needed = 8
+        # Bau-Anforderungen (VEREINFACHT für skalierbare Völker)
+        self.wood_needed = 5
+        self.stone_needed = 0  # Kein Stein benötigt - nur Holz für schnellen Hausbau
         self.wood_used = 0
         self.stone_used = 0
         
@@ -111,9 +111,9 @@ class House:
         self.wood_used += added_wood
         self.stone_used += added_stone
         
-        # Berechne Baufortschritt
-        wood_progress = self.wood_used / self.wood_needed
-        stone_progress = self.stone_used / self.stone_needed
+        # Berechne Baufortschritt (sichere Division)
+        wood_progress = self.wood_used / self.wood_needed if self.wood_needed > 0 else 1.0
+        stone_progress = self.stone_used / self.stone_needed if self.stone_needed > 0 else 1.0
         self.build_progress = min(wood_progress, stone_progress)
         
         # Haus fertig?
@@ -237,9 +237,9 @@ class HouseSystem:
             'blue': {'active': 0, 'completed': 0, 'total_planned': 0},
             'green': {'active': 0, 'completed': 0, 'total_planned': 0}
         }
-        # Maximale parallele Baustellen pro Volk (schrittweiser Aufbau)
+        # Maximale parallele Baustellen pro Volk (skaliert für bis zu 11 NPCs)
         if not hasattr(self, 'max_active_sites_per_tribe'):
-            self.max_active_sites_per_tribe = 2
+            self.max_active_sites_per_tribe = 11  # Ein Haus pro NPC
         
     def get_construction_stats(self, tribe_color: str) -> Dict[str, int]:
         """Hole Baustatistiken für ein Volk"""
@@ -269,18 +269,15 @@ class HouseSystem:
         print(f"🏗️ Stadtplaner für {tribe_color} erstellt bei {center}")
         
     def build_house_for_npc(self, owner_id: str, tribe_color: str) -> House:
-        """Baue Haus für NPC - 🏗️ GESTAFFELTES SYSTEM"""
+        """Baue Haus für NPC - SKALIERBARE LÖSUNG"""
         if owner_id in self.houses:
             return self.houses[owner_id]  # Haus bereits vorhanden
         
-        # 🏗️ NEUES FEATURE: Prüfe Baustellen-Limit (konfigurierbar pro Volk)
-        self.update_construction_stats()
-        stats = self.get_construction_stats(tribe_color)
-        active_limit = self.max_active_sites_per_tribe
-        if stats['active'] >= active_limit:
-            if random.random() < 0.1:
-                print(f"🏗️ {tribe_color.upper()}: Baustellen-Limit erreicht ({stats['active']}/{active_limit})")
-            return None
+        # NEUE STRATEGIE: Einfache Regel - ein Haus pro NPC
+        tribe_houses = self.get_tribe_houses(tribe_color)
+        print(f"🏗️ {tribe_color}: {owner_id} will Haus bauen - bereits {len(tribe_houses)} Häuser vorhanden")
+        
+        # Kein Limit mehr - jeder NPC kann sein Haus haben
         
         # Finde Position mit Stadtplaner
         planner = self.city_planners.get(tribe_color)
@@ -292,7 +289,7 @@ class HouseSystem:
         house = House(position, owner_id, tribe_color)
         self.houses[owner_id] = house
         
-        print(f"🏗️ Bauplatz für {owner_id} ({tribe_color}) erstellt")
+        print(f"🏗️ Bauplatz für {owner_id} ({tribe_color}) erstellt - Haus #{len(tribe_houses) + 1}")
         return house
     
     def get_house(self, owner_id: str) -> Optional[House]:

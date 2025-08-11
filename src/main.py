@@ -15,6 +15,7 @@ from npc_system_simple import NPCSystem2D
 from simple_tribe_ai import SimpleTribeSystem  # Neues vereinfachtes System
 from storage_system import StorageSystem
 from house_system import HouseSystem
+from chat_system import ChatSystem
 from pygame import KMOD_SHIFT
 
 # Debug Panel (lazy import of assets)
@@ -536,23 +537,26 @@ class Game:
         # 🏠 House-System initialisieren (Häuser und Stadtplanung)
         self.house_system = HouseSystem()
         
+        # 💬 Chat-System initialisieren (Spieler-Befehle an Anführer)
+        self.chat_system = ChatSystem(SCREEN_WIDTH, SCREEN_HEIGHT)
+        
         # NPC-System initialisieren (einfaches 2D-System)
         self.npc_system = NPCSystem2D(self.world if USE_SIMPLE_WORLD else None)
         
         # 🧠 Einfaches KI-Stamm-System initialisieren
         self.tribe_system = SimpleTribeSystem()
-        self.use_ai_tribes = True
+        self.use_ai_tribess = True
         print("🏠 Einfaches Tribe AI System geladen (1 Anführer + 2 Arbeiter)")
         
         # Immer 2D-NPCs verwenden (Performance-optimiert)
         self.use_3d_npcs = False
-        self.use_ai_tribe = True  # Verwende KI-Stamm statt einfacher NPCs
+        self.use_ai_tribes = True  # Verwende KI-Stamm statt einfacher NPCs
         
         # Verwende Spieler-Position als Zentrum für Völker-Verteilung
         player_x, player_y = spawn_x, spawn_y
         tribe_spawn_pos = (player_x, player_y)
         
-        if self.use_ai_tribes:
+        if self.use_ai_tribess:
             # Erstelle Lager für den Stamm
             storage_pos = (tribe_spawn_pos[0] - 100, tribe_spawn_pos[1] - 100)
             self.storage_system.create_storage(storage_pos, "red")
@@ -560,9 +564,9 @@ class Game:
             # Initialisiere Stadtplaner für den Stamm
             self.house_system.create_city_planner("red", storage_pos)
             
-            # Erstelle einen einfachen Stamm mit 1 Anführer und 2 Arbeitern
-            self.tribe_system.create_tribe("red", tribe_spawn_pos, num_workers=2)
-            print("👥 Stamm erstellt: 1 Anführer + 2 Arbeiter")
+            # Erstelle einen skalierten Stamm mit 1 Anführer und 10 Arbeitern
+            self.tribe_system.create_tribe("red", tribe_spawn_pos, num_workers=10)
+            print("👥 Stamm erstellt: 1 Anführer + 10 Arbeiter (11 Charaktere total)")
         
         # Versuche gespeicherte Welt zu laden
         self.auto_load_world()
@@ -578,6 +582,18 @@ class Game:
             self.draw()
         pygame.quit()
 
+    def _get_tribe_leader(self, tribe_color: str):
+        """Hole den Anführer eines Stammes"""
+        try:
+            if hasattr(self, 'tribe_system') and self.tribe_system and hasattr(self.tribe_system, 'tribes'):
+                tribe = self.tribe_system.tribes.get(tribe_color, [])
+                for npc in tribe:
+                    if hasattr(npc, 'is_leader') and npc.is_leader:
+                        return npc
+        except Exception as e:
+            print(f"❌ Fehler beim Suchen des Anführers: {e}")
+        return None
+
     def handle_events(self):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -585,6 +601,23 @@ class Game:
                     
             elif event.type == pygame.KEYDOWN:
                 print(f"Taste gedrückt: {pygame.key.name(event.key)}")  # Debug-Ausgabe
+                
+                # Chat-System hat Priorität bei Input
+                try:
+                    command = self.chat_system.handle_input(event)
+                    if command:
+                        # Sende Befehl an den Anführer
+                        leader = self._get_tribe_leader('red')  # Später anpassbar für verschiedene Völker
+                        if leader:
+                            from chat_system import CommandParser
+                            parser = CommandParser()
+                            parsed = parser.parse_command(command.command_text)
+                            leader.receive_player_command(parsed)
+                            self.chat_system.add_leader_response(f"Befehl erhalten: {parsed['description']}")
+                        continue  # Skip andere Input-Handling wenn Chat aktiv
+                except Exception as e:
+                    print(f"❌ Chat-System Fehler: {e}")
+                    # Fortfahren ohne Chat-Input
                 
                 # Alle Tastatur-Events hier behandeln
                 if event.key >= pygame.K_1 and event.key <= pygame.K_9:
@@ -723,75 +756,81 @@ class Game:
                     self.show_time_help()
                 elif event.key == pygame.K_i:
                     # I = KI-Debug-Modus togglen
-                    if self.use_ai_tribe:
-                        self.tribe_ai_system.toggle_debug_mode()
+                    if self.use_ai_tribes:
+                        self.tribe_system.toggle_debug_mode()
                         print("🧠 KI-Debug-Modus umgeschaltet!")
                 elif event.key == pygame.K_k:
                     # K = KI-Statistiken anzeigen
-                    if self.use_ai_tribe:
-                        if hasattr(self.tribe_ai_system, 'get_stats'):
+                    if self.use_ai_tribes:
+                        if hasattr(self.tribe_system, 'get_stats'):
                             # Hybrid/Scalable AI System
-                            stats = self.tribe_ai_system.get_stats()
+                            stats = self.tribe_system.get_stats()
                             print(f"🧠 Hybrid AI Stats: {stats}")
                         else:
                             # Normal AI System
-                            stats = self.tribe_ai_system.get_ai_stats()
+                            stats = self.tribe_system.get_ai_stats()
                             print(f"🧠 KI-Stats: {stats}")
                 
                 elif event.key == pygame.K_r:
                     # [R] - Ressourcen-Debug: Zeige alle gesammelten Ressourcen
-                    if hasattr(self.tribe_ai_system, 'members'):
+                    if hasattr(self.tribe_system, 'members'):
                         print("📊 RESSOURCEN-ÜBERSICHT:")
                         for color in ['red', 'blue', 'green']:
-                            tribe_members = [m for m in self.tribe_ai_system.members if m.tribe_color == color]
+                            tribe_members = [m for m in self.tribe_system.members if m.tribe_color == color]
                             total_wood = sum(m.memory.resources_collected['wood'] for m in tribe_members)
                             total_stone = sum(m.memory.resources_collected['stone'] for m in tribe_members)
                             print(f"  🔴🔵🟢 {color.upper()} Volk: {total_wood} Holz, {total_stone} Stein ({len(tribe_members)} Mitglieder)")
                 
                 elif event.key == pygame.K_b:
                     # [B] - Baufortschritt-Debug  
-                    if hasattr(self.tribe_ai_system, 'world_state'):
+                    if hasattr(self.tribe_system, 'world_state'):
                         print("🏠 BAUFORTSCHRITT:")
                         for color in ['red', 'blue', 'green']:
                             house_key = f'house_progress_{color}'
-                            progress = self.tribe_ai_system.world_state.get(house_key, 0.0)
-                            completed = self.tribe_ai_system.world_state.get(f'house_completed_{color}', False)
+                            progress = self.tribe_system.world_state.get(house_key, 0.0)
+                            completed = self.tribe_system.world_state.get(f'house_completed_{color}', False)
                             status = "✅ FERTIG" if completed else f"{progress:.1%}"
                             house_type = {"red": "Holzhaus", "blue": "Haus", "green": "Steinburg"}[color]
                             print(f"  🔴🔵🟢 {color.upper()} {house_type}: {status}")
                 
                 elif event.key == pygame.K_o:
                     # [O] - Boost Ressourcen sammeln (zum Testen)
-                    if hasattr(self.tribe_ai_system, 'members'):
+                    if hasattr(self.tribe_system, 'members'):
                         print("⚡ RESSOURCEN-BOOST AKTIVIERT!")
                         import random
-                        for member in self.tribe_ai_system.members[:20]:  # Erste 20 NPCs
+                        for member in self.tribe_system.members[:20]:  # Erste 20 NPCs
                             member.memory.resources_collected['wood'] += random.randint(5, 15)
                             member.memory.resources_collected['stone'] += random.randint(3, 10)
                         print("🪓 +Holz und ⛏️ +Stein für 20 NPCs hinzugefügt!")
                 elif event.key == pygame.K_t:
                     # T = Teleportiere AI Members zum Player
-                    if self.tribe_ai_system:
+                    if self.tribe_system:
                         player_x = self.player.x
                         player_y = self.player.y
                         
                         # Unterschiedliche Teleport-Methoden für verschiedene AI Systeme
-                        if hasattr(self.tribe_ai_system, 'teleport_nearby_to_player'):
+                        if hasattr(self.tribe_system, 'teleport_nearby_to_player'):
                             # Hybrid/Scalable AI System - teleportiere nahegelegene Charaktere
-                            self.tribe_ai_system.teleport_nearby_to_player(player_x, player_y, radius=500)
-                            if hasattr(self.tribe_ai_system, 'leaders'):
-                                print(f"🚁 AI Charaktere zu dir teleportiert! ({len(self.tribe_ai_system.leaders)} Leaders + {len(self.tribe_ai_system.workers)} Workers)")
+                            self.tribe_system.teleport_nearby_to_player(player_x, player_y, radius=500)
+                            if hasattr(self.tribe_system, 'leaders'):
+                                print(f"🚁 AI Charaktere zu dir teleportiert! ({len(self.tribe_system.leaders)} Leaders + {len(self.tribe_system.workers)} Workers)")
                             else:
                                 print("🚁 Nahegelegene AI Charaktere zu dir teleportiert!")
                         else:
                             # Normal AI System
-                            self.tribe_ai_system.teleport_members_to_player(player_x, player_y)
+                            self.tribe_system.teleport_members_to_player(player_x, player_y)
                             print("🚁 AI Tribe Members zu dir teleportiert! (6 Charaktere)")
-                elif event.key == pygame.K_c and USE_SIMPLE_WORLD:
-                    # C = Clear (alle platzierten Objekte löschen)
+                elif event.key == pygame.K_c and not USE_SIMPLE_WORLD:
+                    # C = Chat öffnen/schließen (nur wenn nicht Simple World für Clear)
+                    self.chat_system.toggle_chat()
+                elif event.key == pygame.K_c and USE_SIMPLE_WORLD and pygame.key.get_pressed()[pygame.K_LSHIFT]:
+                    # Shift+C = Clear (alle platzierten Objekte löschen) in Simple World
                     if hasattr(self.world, 'clear_dynamic_objects'):
                         self.world.clear_dynamic_objects()
                         print("Alle platzierten Objekte gelöscht!")
+                elif event.key == pygame.K_c and not pygame.key.get_pressed()[pygame.K_LSHIFT]:
+                    # C = Chat öffnen/schließen
+                    self.chat_system.toggle_chat()
                 # Tier-Interaktion (behalten)
                 elif event.key == pygame.K_f:
                     # F = Tier füttern
@@ -929,8 +968,19 @@ class Game:
         # 🏠 House-System updaten
         self.house_system.update(dt)
         
+        # 💬 Chat-System updaten
+        self.chat_system.update(dt)
+        
+        # Hole Anführer-Antworten und zeige sie im Chat
+        if hasattr(self, 'tribe_system') and self.tribe_system:
+            leader = self._get_tribe_leader('red')
+            if leader and hasattr(leader, 'command_responses'):
+                for response in leader.command_responses:
+                    self.chat_system.add_leader_response(response)
+                leader.command_responses.clear()
+        
         # NPC-System updaten
-        if self.use_ai_tribes:
+        if self.use_ai_tribess:
             # Erstelle world_state Dictionary mit allen benötigten Systemen
             world_state = {
                 'tree_system': self.tree_system,
@@ -1076,7 +1126,7 @@ class Game:
         if self.use_3d_npcs:
             # 3D-NPCs werden mit OpenGL gerendert (nach 2D-Rendering)
             pass  # 3D-Rendering erfolgt später
-        elif self.use_ai_tribe:
+        elif self.use_ai_tribes:
             # Einfaches Stamm-System rendern
             for color, npcs in self.tribe_system.tribes.items():
                 for npc in npcs:
@@ -1157,6 +1207,9 @@ class Game:
                 
                 self.screen.blit(speed_text, text_rect)
         
+        # 💬 Chat-System zeichnen (über allem)
+        self.chat_system.draw(self.screen)
+        
         pygame.display.flip()
         
     def show_time_help(self):
@@ -1228,6 +1281,7 @@ class Game:
         print("🤖 I = AI Debug-Modus, K = AI Stats")
         print("🤖 R = Ressourcen anzeigen, B = Baufortschritt")
         print("🤖 O = Ressourcen-Boost (zum Testen)")
+        print("💬 C = Chat mit Anführer (z.B. 'baue 5 häuser')")
 
 if __name__ == '__main__':
     Game().run()
