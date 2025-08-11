@@ -618,25 +618,27 @@ class Game:
                     # N = Mittag (12:00)
                     self.game_time.set_time(12, 0)
                     print("Zeit gesetzt auf: Mittag 12:00")
-                elif event.key == pygame.K_e:
-                    # E = Abend (18:00)
-                    self.game_time.set_time(18, 0)
-                    print("Zeit gesetzt auf: Abend 18:00")
                 elif event.key == pygame.K_i:
                     # I = Inventar öffnen/schließen
                     self.inventory.toggle_visibility()
                 elif event.key == pygame.K_e:
-                    # E = Essen (erste essbare Item im Inventar)
-                    # Suche nach essbaren Items im Inventar
-                    eaten = False
-                    for slot in self.inventory.slots:
-                        if not slot.is_empty() and self.hunger_system.is_food_item(slot.item_type):
-                            if self.hunger_system.eat_item(slot.item_type, self.inventory):
-                                print(f"🍴 {slot.item_type} gegessen!")
-                                eaten = True
-                                break
-                    if not eaten:
-                        print("Keine essbaren Items im Inventar!")
+                    # E = Essen (erste essbare Item im Inventar) oder Abend (wenn Shift gedrückt)
+                    if pygame.key.get_pressed()[pygame.K_LSHIFT]:
+                        # Shift+E = Abend (18:00)
+                        self.game_time.set_time(18, 0)
+                        print("Zeit gesetzt auf: Abend 18:00")
+                    else:
+                        # E = Essen
+                        # Suche nach essbaren Items im Inventar
+                        eaten = False
+                        for slot in self.inventory.slots:
+                            if not slot.is_empty() and self.hunger_system.is_food_item(slot.item_type):
+                                if self.hunger_system.eat_item(slot.item_type, self.inventory):
+                                    print(f"🍴 {slot.item_type} gegessen!")
+                                    eaten = True
+                                    break
+                        if not eaten:
+                            print("Keine essbaren Items im Inventar!")
                 elif event.key == pygame.K_SPACE:
                     # SPACE = Zeitraffer-Modus (5x Geschwindigkeit für Sonnen-Demo)
                     if self.game_time.time_speed == 5.0:
@@ -707,8 +709,8 @@ class Game:
                 # Zeit-UI Klicks zuerst prüfen
                 if self.game_time.handle_mouse_event(event):
                     continue  # Event wurde von Zeit-UI verarbeitet
-                # Inventar Klicks prüfen
-                elif self.inventory.handle_mouse_event(event):
+                # Inventar Klicks prüfen (mit Hunger-System)
+                elif self.inventory.handle_mouse_event(event, self.hunger_system):
                     continue  # Event wurde von Inventar verarbeitet
                 # Farm-UI Klicks prüfen
                 elif self.farm_ui.handle_mouse_event(event, self.camera):
@@ -753,6 +755,9 @@ class Game:
         # Zeit-System updaten
         self.game_time.update()
         
+        # Hunger-System updaten
+        self.hunger_system.update(self.game_time)
+        
         # Farming-System updaten
         self.farming_system.update(dt, self.game_time)
         
@@ -776,7 +781,7 @@ class Game:
                     action_data = {'action': 'water', 'pos': world_pos}
             
             if action_data:
-                self.farming_system.handle_farm_action(action_data)
+                self.farming_system.handle_farm_action(action_data, self.inventory)
         
         self.all_sprites.update(dt)
         self.camera.update(self.player.rect)
@@ -880,6 +885,11 @@ class Game:
         
         # Inventar zeichnen (über allem anderen)
         self.inventory.draw(self.screen)
+        
+        # Hunger-UI zeichnen (links oben)
+        self.hunger_system.draw_hunger_ui(self.screen, 10, 200)
+        if self.hunger_system.is_hungry:
+            self.hunger_system.draw_eating_hint(self.screen, 10, 280)
         
         # Zeit-UI zeichnen als elegantes, klickbares Spielelement (oben mittig)
         time_x = (SCREEN_WIDTH - 400) // 2  # Zentriert oben (400 = neue UI Breite)
