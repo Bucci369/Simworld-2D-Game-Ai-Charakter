@@ -237,6 +237,9 @@ class HouseSystem:
             'blue': {'active': 0, 'completed': 0, 'total_planned': 0},
             'green': {'active': 0, 'completed': 0, 'total_planned': 0}
         }
+        # Maximale parallele Baustellen pro Volk (schrittweiser Aufbau)
+        if not hasattr(self, 'max_active_sites_per_tribe'):
+            self.max_active_sites_per_tribe = 2
         
     def get_construction_stats(self, tribe_color: str) -> Dict[str, int]:
         """Hole Baustatistiken für ein Volk"""
@@ -253,10 +256,10 @@ class HouseSystem:
             tribe = house.tribe_color
             if tribe in self.construction_stats:
                 self.construction_stats[tribe]['total_planned'] += 1
-                
+                # Als "active" zählen jetzt ALLE unfertigen Häuser (auch Fortschritt 0.0)
                 if house.built:
                     self.construction_stats[tribe]['completed'] += 1
-                elif house.build_progress > 0.0:
+                else:
                     self.construction_stats[tribe]['active'] += 1
         
     def create_city_planner(self, tribe_color: str, center: Tuple[float, float]):
@@ -270,14 +273,13 @@ class HouseSystem:
         if owner_id in self.houses:
             return self.houses[owner_id]  # Haus bereits vorhanden
         
-        # 🏗️ NEUES FEATURE: Prüfe Baustellen-Limit (max 5 pro Volk)
+        # 🏗️ NEUES FEATURE: Prüfe Baustellen-Limit (konfigurierbar pro Volk)
         self.update_construction_stats()
         stats = self.get_construction_stats(tribe_color)
-        
-        if stats['active'] >= 5:
-            # Maximum erreicht - keine neue Baustelle
-            if random.random() < 0.1:  # 10% log chance
-                print(f"🏗️ {tribe_color.upper()}: Baustellen-Limit erreicht ({stats['active']}/5)")
+        active_limit = self.max_active_sites_per_tribe
+        if stats['active'] >= active_limit:
+            if random.random() < 0.1:
+                print(f"🏗️ {tribe_color.upper()}: Baustellen-Limit erreicht ({stats['active']}/{active_limit})")
             return None
         
         # Finde Position mit Stadtplaner

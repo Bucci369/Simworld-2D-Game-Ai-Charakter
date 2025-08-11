@@ -609,15 +609,12 @@ class TribeAIMember:
             if self._tribe_system.house_system:
                 tribe_houses = self._tribe_system.house_system.get_tribe_houses(self.tribe_color)
         
-        # 🏗️ NEUES FEATURE: Gestaffeltes Bausystem (maximal 5 Baustellen)
+        # 🏗️ Gestaffelte Baustellen: alle unfertigen zählen
         active_construction_sites = 0
         if hasattr(self, '_tribe_system'):
             tribe_members = [m for m in self._tribe_system.members if m.tribe_color == self.tribe_color]
-            
-            # Zähle aktive Baustellen
             for member in tribe_members:
-                if (member.house and not member.house.built and 
-                    member.house.build_progress > 0.0):
+                if member.house and not member.house.built:
                     active_construction_sites += 1
         
         # Prioritäten analysieren:
@@ -629,13 +626,22 @@ class TribeAIMember:
         next_homeless_member = None
         
         for member in tribe_members:
-            if not member.house or not member.house.built:
+            if not member.house:
                 homeless_count += 1
-                if not next_homeless_member and (not member.house or member.house.build_progress == 0.0):
+                if not next_homeless_member:
                     next_homeless_member = member
+            elif not member.house.built:
+                homeless_count += 1
         
-        # 🏗️ GESTAFFELTES BAUSYSTEM: Nur neue Baustelle wenn < 5 aktive
-        if homeless_count > 0 and active_construction_sites < 5:
+        # Ermittle dynamisches Baustellen-Limit aus HouseSystem (Fallback 2)
+        active_limit = 2
+        if hasattr(self, '_tribe_system') and self._tribe_system.house_system:
+            hs = self._tribe_system.house_system
+            if hasattr(hs, 'max_active_sites_per_tribe'):
+                active_limit = hs.max_active_sites_per_tribe
+
+        # 🏗️ GESTAFFELTES BAUSYSTEM: Nur neue Baustelle wenn unterhalb dynamischem Limit
+        if homeless_count > 0 and active_construction_sites < active_limit:
             if next_homeless_member and not next_homeless_member.house:
                 # Erstelle neue Baustelle nur wenn Platz frei
                 house = self._tribe_system.house_system.build_house_for_npc(
@@ -644,8 +650,8 @@ class TribeAIMember:
                 active_construction_sites += 1
                 
                 # Log für Debugging
-                if random.random() < 0.1:  # 10% chance to log
-                    logger.info(f"🏗️ {self.tribe_color.upper()} Anführer: Neue Baustelle #{active_construction_sites}/5 für {next_homeless_member.member_id}")
+                if random.random() < 0.2:  # 20% chance to log
+                    logger.info(f"🏗️ {self.tribe_color.upper()} Anführer: Neue Baustelle #{active_construction_sites}/{active_limit} für {next_homeless_member.member_id}")
         
         # Arbeite an bestehenden Baustellen
         if homeless_count > 0:
@@ -672,21 +678,47 @@ class TribeAIMember:
                 if requirements['wood'] == 0 and requirements['stone'] == 0:
                     tasks.append({'type': 'build_house', 'priority': 10, 'reason': 'Ressourcen verfügbar - baue Haus'})
         
+        # Sammle globalen Ressourcenbedarf aus allen aktiven Häusern (für bessere Verteilung)
+        total_req_wood = 0
+        total_req_stone = 0
+        if hasattr(self, '_tribe_system') and self._tribe_system.house_system:
+            for h in self._tribe_system.house_system.get_tribe_houses(self.tribe_color):
+                if not h.built:
+                    r = h.get_build_requirements()
+                    total_req_wood += r.get('wood', 0)
+                    total_req_stone += r.get('stone', 0)
+
+        # Falls Follower noch gar kein Haus hat (und Limit voll), trotzdem Ressourcen fürs nächste Haus farmen
+        if follower.house is None and active_construction_sites >= active_limit:
+            # Entscheide was wichtiger ist: Verhältnis fehlend / (Stock+1)
+            wood_need_ratio = (total_req_wood + 1) / ( (tribe_storage.get_total_resources().get('wood',0) if tribe_storage else 0) + 1)
+            stone_need_ratio = (total_req_stone + 1) / ( (tribe_storage.get_total_resources().get('stone',0) if tribe_storage else 0) + 1)
+            if wood_need_ratio > stone_need_ratio:
+                tasks.append({'type': 'collect_wood', 'priority': 7, 'reason': 'Ressourcen fürs zukünftige Haus (Holz vorgelagert)'})
+            else:
+                tasks.append({'type': 'collect_stone', 'priority': 7, 'reason': 'Ressourcen fürs zukünftige Haus (Stein vorgelagert)'})
+
         # Anführer Status-Update (gelegentlich)
-        if random.random() < 0.05:  # 5% chance
-            logger.info(f"👑 {self.tribe_color.upper()} Anführer Status: {active_construction_sites}/5 Baustellen aktiv, {homeless_count} obdachlos")
+        if random.random() < 0.05:
+            logger.info(f"👑 {self.tribe_color.upper()} Anführer Status: {active_construction_sites} Baustellen/{active_limit}, {homeless_count} ohne fertiges Haus, Bedarf: {total_req_wood} Holz / {total_req_stone} Stein")
         
         # 2. LAGER-MANAGEMENT (mittlere Priorität)
         if tribe_storage:
             resources = tribe_storage.get_total_resources()
-            
-            # Zu wenig Holz im Lager
-            if resources.get('wood', 0) < 20:
-                tasks.append({'type': 'collect_wood', 'priority': 6, 'reason': 'Lager braucht mehr Holz'})
-            
-            # Zu wenig Stein im Lager  
-            if resources.get('stone', 0) < 15:
-                tasks.append({'type': 'collect_stone', 'priority': 7, 'reason': 'Lager braucht mehr Stein'})
+            wood_stock = resources.get('wood', 0)
+            stone_stock = resources.get('stone', 0)
+            # Dynamische Priorität: falls gerade Hausressourcen fehlen
+            if follower.house and not follower.house.built:
+                req = follower.house.get_build_requirements()
+                if req['wood'] > 0:
+                    tasks.append({'type': 'collect_wood', 'priority': 8, 'reason': f'Holz für Haus ({req["wood"]} fehlt)'})
+                if req['stone'] > 0:
+                    tasks.append({'type': 'collect_stone', 'priority': 8, 'reason': f'Stein für Haus ({req["stone"]} fehlt)'})
+            # Mindestpuffer
+            if wood_stock < 10:
+                tasks.append({'type': 'collect_wood', 'priority': 5, 'reason': 'Holz-Puffer auffüllen'})
+            if stone_stock < 8:
+                tasks.append({'type': 'collect_stone', 'priority': 5, 'reason': 'Stein-Puffer auffüllen'})
         
         # 3. SPEZIALISIERTEN JOB FORTSETZEN (niedrige Priorität)
         if follower.job_specialization == 'wood_cutter':
@@ -715,17 +747,12 @@ class TribeAIMember:
         # 3. Schlafen (wenn sehr müde)
         
         carrying_total = sum(self.carrying_resources.values())
-        
-        if carrying_total >= 10:  # Volles Inventar
+        if carrying_total >= self.resource_capacity or carrying_total >= 5:
             return True
-        
         if self.fatigue > 0.8:  # Sehr müde
             return True
-        
-        # Zufällig alle paar Minuten
-        if random.random() < 0.01:  # 1% Chance pro Update
+        if random.random() < 0.01:  # gelegentliche Heimkehr
             return True
-        
         return False
     
     def _go_home(self):
@@ -781,7 +808,15 @@ class TribeAIMember:
     def _collect_resource(self, resource_type: str, amount: int):
         """Sammle Ressource (wird von Arbeits-Aktionen aufgerufen)"""
         self.carrying_resources[resource_type] += amount
+        # Spiegel auch im Memory für Analyse / alte Zählungen
+        if resource_type in self.memory.resources_collected:
+            self.memory.resources_collected[resource_type] += amount
+        else:
+            self.memory.resources_collected[resource_type] = amount
         logger.info(f"🎒 {self.member_id} trägt jetzt {self.carrying_resources[resource_type]} {resource_type}")
+        # Frühes Heimgehen wenn voll
+        if sum(self.carrying_resources.values()) >= self.resource_capacity:
+            self._go_home()
     
     def _needs_rest(self) -> bool:
         """Prüfe ob NPC eine Pause braucht"""
@@ -882,104 +917,154 @@ class TribeAIMember:
     
     def update_ai(self, dt: float, nearby_members: List, world_state: Dict[str, Any]):
         """Hauptupdate für KI-Verhalten"""
-        # 🚀 PERFORMANCE FIX: AI Update Throttling - WENIGER HÄUFIG
+        # Init Timings
         if not hasattr(self, 'last_ai_update'):
-            self.last_ai_update = 0
-            self.ai_update_interval = random.uniform(2.0, 4.0)  # Viel weniger häufig für Performance
-        
+            self.last_ai_update = 0.0
+            self.ai_update_interval = random.uniform(0.8, 1.5)
+        if not hasattr(self, '_idle_stuck_timer'):
+            self._idle_stuck_timer = 0.0
+        if not hasattr(self, '_last_productive_time'):
+            self._last_productive_time = time.time()
+
         current_time = time.time()
         should_update_ai = (current_time - self.last_ai_update) > self.ai_update_interval
-        
+
         self.action_timer += dt
         self.conversation_cooldown = max(0, self.conversation_cooldown - dt)
-        
-        # Rest-System: Verwalte Pausen und Erschöpfung
         self.rest_timer -= dt
-        
-        # Wenn ruhend, führe Ruheverhalten aus
+
+        # Resting
         if self.is_resting:
             self._handle_resting(dt)
-            # Während der Pause: Idle-Verhalten oder Wandern
             if self.current_action not in [ActionType.IDLE, ActionType.WANDERING, ActionType.CONVERSATION]:
                 self._change_action(ActionType.IDLE)
-            return  # Früher Ausstieg - keine anderen Aktionen während Pause
-        
-        # Prüfe ob Pause nötig ist
+            return
+
+        # Needs rest?
         if self._needs_rest():
             self._start_resting()
             self._change_action(ActionType.IDLE)
-            return  # Beginne sofort mit der Pause
-        
-        # 🏠 HEIMKEHR-SYSTEM: NPCs gehen nach Hause für Pausen oder Lager
+            return
+
+        # Go home to deposit or rest
         if self._should_go_home():
             self._go_home()
-            return  # Gehe nach Hause, keine anderen Aktionen
-        
-        # 👑 KOMMANDO-SYSTEM: NPCs gehen zu Anführer für Aufträge
+            return
+
+        # Visit leader
         if not self.is_leader and self._should_visit_leader():
             self._go_to_leader()
-            return  # Gehe zum Anführer, keine anderen Aktionen
-        
-        # Hole aktuellen Zustand
+            return
+
+        # Leader broadcasts tasks to idle followers
+        if self.is_leader:
+            if not hasattr(self, '_last_task_broadcast'):
+                self._last_task_broadcast = 0.0
+            if current_time - self._last_task_broadcast > 3.0:
+                self._broadcast_tasks_to_idle_followers()
+                self._last_task_broadcast = current_time
+
+        # Decide next action
         state_vector = self.get_state_vector(nearby_members, world_state)
-        
-        # Entscheide neue Aktion falls nötig - ABER NUR ALLE 0.5-1s!
-        if should_update_ai and (self.action_timer > 5.0 or self.current_action == ActionType.IDLE):
-            # 🎯 NEUES SYSTEM: Untertanen führen assigned_tasks aus
+        if should_update_ai and (self.action_timer > 2.0 or self.current_action == ActionType.IDLE):
             if not self.is_leader and self.assigned_task:
-                if self.assigned_task == 'collect_wood':
-                    new_action = ActionType.WOOD_CHOPPING
-                elif self.assigned_task == 'collect_stone':
-                    new_action = ActionType.STONE_MINING
-                elif self.assigned_task == 'build_house':
-                    new_action = ActionType.HOUSE_BUILDING
-                elif self.assigned_task == 'rest':
-                    new_action = ActionType.IDLE
-                else:
-                    new_action = ActionType.WANDERING  # Fallback
-            # Untertanen ohne Aufträge warten oder suchen Anführer
+                mapping = {
+                    'collect_wood': ActionType.WOOD_CHOPPING,
+                    'collect_stone': ActionType.STONE_MINING,
+                    'build_house': ActionType.HOUSE_BUILDING,
+                    'rest': ActionType.IDLE
+                }
+                new_action = mapping.get(self.assigned_task, ActionType.WANDERING)
             elif not self.is_leader and not self.assigned_task:
-                new_action = ActionType.WANDERING  # Suche Anführer
+                new_action = ActionType.WANDERING
             else:
-                # Anführer verwenden Neural Network, aber berücksichtigen Job-Spezialisierung
                 self.last_ai_update = current_time
                 old_state = state_vector.copy()
-                
-                # Prüfe Jobrotation
                 if self._should_rotate_job(dt):
-                    # Job-basierte Entscheidung (60% der Zeit)
                     if random.random() < 0.6:
                         new_action = self._choose_action_by_job()
                     else:
-                        # KI-Entscheidung für Anführer
                         new_action = self.neural_network.predict_action(state_vector)
                 else:
-                    # Bleibe bei aktueller Spezialisierung wenn noch nicht Zeit zum Wechseln
-                    if random.random() < 0.8:  # 80% der Zeit Job-fokussiert bleiben
+                    if random.random() < 0.8:
                         new_action = self._choose_action_by_job()
                     else:
                         new_action = self.neural_network.predict_action(state_vector)
-                
-                # Belohnung für vorherige Aktion berechnen
                 reward = self._calculate_reward(world_state)
-                
-                # Erfahrung speichern (begrenzt auf 100 Einträge)
                 if hasattr(self, '_last_state') and len(self.neural_network.memory_buffer) < 100:
-                    self.neural_network.store_experience(
-                        self._last_state, self.current_action, reward, state_vector
-                    )
-                
+                    self.neural_network.store_experience(self._last_state, self.current_action, reward, state_vector)
                 self._last_state = old_state
-            
             self._change_action(new_action)
             self.action_timer = 0.0
-        
-        # Führe aktuelle Aktion aus
+
+        # Execute action
         self._execute_current_action(dt, nearby_members, world_state)
-        
-        # Gelegentliches Training
-        if random.random() < 0.01:  # 1% Chance pro Update
+
+        # Productivity / stuck tracking
+        if self.current_action in [ActionType.WOOD_CHOPPING, ActionType.STONE_MINING, ActionType.HOUSE_BUILDING]:
+            self._last_productive_time = time.time()
+            self._idle_stuck_timer = 0.0
+        else:
+            if not self.is_leader and self.current_action in [ActionType.IDLE, ActionType.WANDERING]:
+                self._idle_stuck_timer += dt
+                if self._idle_stuck_timer > 5.0:
+                    self._force_basic_task()
+                    self._idle_stuck_timer = 0.0
+            else:
+                self._idle_stuck_timer = 0.0
+
+        # Occasional training
+        if random.random() < 0.01:
             self.neural_network.train_from_experience()
+
+    def _force_basic_task(self):
+        """Fallback falls Untertan zu lange untätig ist"""
+        # Wenn bereits eine Aufgabe aktiv, nichts tun
+        if self.assigned_task and self.current_action not in [ActionType.IDLE, ActionType.WANDERING]:
+            return
+        # Wähle bevorzugt Spezialisierung
+        preferred = None
+        if self.job_specialization == 'wood_cutter':
+            preferred = 'collect_wood'
+        elif self.job_specialization == 'miner':
+            preferred = 'collect_stone'
+        elif self.job_specialization == 'builder' and self.house and not self.house.built:
+            preferred = 'build_house'
+        # Fallback rotierend
+        if not preferred:
+            preferred = random.choice(['collect_wood', 'collect_stone'])
+        self.assigned_task = preferred
+        mapping = {
+            'collect_wood': ActionType.WOOD_CHOPPING,
+            'collect_stone': ActionType.STONE_MINING,
+            'build_house': ActionType.HOUSE_BUILDING
+        }
+        self._change_action(mapping.get(preferred, ActionType.WANDERING))
+        logger.info(f"🆘 Fallback: {self.member_id} bekam erzwungene Aufgabe {preferred}")
+
+    def _broadcast_tasks_to_idle_followers(self):
+        """Weise allen untätigen oder wandernden Untertanen sofort eine Aufgabe zu"""
+        if not self.is_leader or not hasattr(self, 'followers') or not self.followers:
+            return
+        assigned_count = 0
+        for follower in self.followers:
+            if (follower and (not follower.assigned_task or follower.assigned_task in ['rest', ''] or follower.current_action in [ActionType.IDLE, ActionType.WANDERING])):
+                task = self._assign_task_to_follower(follower)
+                if task:
+                    follower.assigned_task = task['type']
+                    follower.task_priority = task['priority']
+                    # Sofort Aktion wechseln statt auf action_timer zu warten
+                    mapping = {
+                        'collect_wood': ActionType.WOOD_CHOPPING,
+                        'collect_stone': ActionType.STONE_MINING,
+                        'build_house': ActionType.HOUSE_BUILDING,
+                        'rest': ActionType.IDLE
+                    }
+                    new_action = mapping.get(follower.assigned_task, ActionType.WANDERING)
+                    follower._change_action(new_action)
+                    assigned_count += 1
+        if assigned_count > 0:
+            logger.info(f"📢 Leader {self.member_id} broadcastete Aufgaben an {assigned_count} Untertanen")
     
     def _calculate_reward(self, world_state: Dict[str, Any]) -> float:
         """Berechne Belohnung für Reinforcement Learning"""
@@ -1217,16 +1302,11 @@ class TribeAIMember:
                     self._wander_to_find_resources('wood')
         
         # Fallback: Simuliere Holz sammeln wenn keine echten Bäume
-        elif random.random() < 0.3:  # Erhöhte Rate für virtuelles Holz (30%)
+        elif random.random() < 0.3:  # Virtuelles Holz
             wood_collected = random.randint(1, 3)
-            self.memory.resources_collected['wood'] += wood_collected
+            self._collect_resource('wood', wood_collected)
             world_state['resources_collected'] = world_state.get('resources_collected', 0) + wood_collected
             self.energy = max(0.1, self.energy - 0.02)
-            
-            if self.is_leader:
-                logger.info(f"🪓 Anführer {self.member_id} sammelt Holz (+{wood_collected})")
-            else:
-                logger.info(f"🪓 Untertan {self.member_id} sammelt Holz (+{wood_collected})")
     
     def _handle_stone_mining(self, world_state: Dict[str, Any]):
         """Aktive Steinsuche und -abbau mit realistischen Arbeitszeiten"""
@@ -1285,16 +1365,11 @@ class TribeAIMember:
                     self._wander_to_find_resources('stone')
         
         # Fallback: Simuliere Stein sammeln wenn keine echten Ressourcen
-        elif random.random() < 0.25:  # Erhöhte Rate für virtuellen Stein (25%)
+        elif random.random() < 0.25:  # Virtueller Stein
             stone_collected = random.randint(1, 3)
-            self.memory.resources_collected['stone'] += stone_collected
+            self._collect_resource('stone', stone_collected)
             world_state['resources_collected'] = world_state.get('resources_collected', 0) + stone_collected
             self.energy = max(0.1, self.energy - 0.04)
-            
-            if self.is_leader:
-                logger.info(f"⛏️ Anführer {self.member_id} sammelt Stein (+{stone_collected})")
-            else:
-                logger.info(f"⛏️ Untertan {self.member_id} sammelt Stein (+{stone_collected})")
     
     def _handle_wandering(self, world_state: Dict[str, Any]):
         """Natürliche Schwarmbewegung - keine Formation"""
@@ -1435,35 +1510,33 @@ class TribeAIMember:
         if not hasattr(self, '_tribe_system'):
             return None
         
-        nearest_resource = None
-        min_distance = 800  # Großer Suchradius
+        search_radius = 1200  # größerer Radius
         available_resources = []
-        
+
         if resource_type == 'wood' and hasattr(self._tribe_system, 'tree_system'):
             for tree in self._tribe_system.tree_system.trees:
                 if tree.alive:
                     distance = abs(tree.x - self.position.x) + abs(tree.y - self.position.y)
-                    if distance < min_distance:
+                    if distance <= search_radius:
                         available_resources.append((tree, distance))
-        
         elif resource_type == 'stone' and hasattr(self._tribe_system, 'mining_system'):
-            for resource in self._tribe_system.mining_system.resources:
-                if resource.alive:
-                    distance = abs(resource.x - self.position.x) + abs(resource.y - self.position.y)
-                    if distance < min_distance:
-                        available_resources.append((resource, distance))
-        
-        # Sortiere nach Entfernung
+            for res in self._tribe_system.mining_system.resources:
+                if res.alive:
+                    distance = abs(res.x - self.position.x) + abs(res.y - self.position.y)
+                    if distance <= search_radius:
+                        available_resources.append((res, distance))
+
+        if not available_resources:
+            return None
+
+        # Sortiere alle (nicht nur streng näher) nach Entfernung
         available_resources.sort(key=lambda x: x[1])
-        
-        # Finde erste Ressource mit verfügbarem Arbeitsplatz
+
+        # Versuche sukzessiv eine Ressource zu claimen
         for resource, distance in available_resources:
             if self._tribe_system._assign_worker_to_resource(self.member_id, resource):
-                nearest_resource = resource
-                min_distance = distance
-                break
-        
-        return nearest_resource
+                return resource
+        return None
     
     def _move_to_resource(self, resource):
         """Bewege dich aktiv zu einer Ressource oder einem anderen NPC"""
@@ -1663,6 +1736,18 @@ class TribeAIMember:
             'from_leader': leader_id,
             'timestamp': time.time()
         })
+        # Übersetze Command direkt in assigned_task + Action (sofortige Wirkung)
+        mapping = {
+            'wood_chopping': ('collect_wood', ActionType.WOOD_CHOPPING),
+            'stone_mining': ('collect_stone', ActionType.STONE_MINING),
+            'house_building': ('build_house', ActionType.HOUSE_BUILDING),
+            'rest': ('rest', ActionType.IDLE)
+        }
+        if command in mapping:
+            self.assigned_task, action = mapping[command]
+            # Nur wechseln wenn wir gerade nichts wichtiges machen oder idle/wandern
+            if self.current_action in [ActionType.IDLE, ActionType.WANDERING, ActionType.GUARD_DUTY, ActionType.GATHERING]:
+                self._change_action(action)
         logger.info(f"📝 Untertan {self.member_id} erhielt Befehl: {command} von Anführer {leader_id}")
     
     def _move_to_zone(self, dt: float, target_zone: pygame.Rect):
@@ -1788,12 +1873,14 @@ class TribeAISystem:
     """Haupt-KI-System für Stamm-Management"""
     
     def __init__(self, world=None, storage_system=None, house_system=None):
+        # Basis-Referenzen
         self.world = world
-        self.members = []
+        self.members: List[TribeAIMember] = []
         self.territory = None
         self.storage_system = storage_system
         self.house_system = house_system
-        
+
+        # Globale Welt-Statuswerte (werden von außen aktualisiert)
         self.world_state = {
             'time_of_day': 0.5,
             'weather': 0.5,
@@ -1802,16 +1889,16 @@ class TribeAISystem:
             'resources_collected': 0,
             'territory_safe': True
         }
-        
-        # KI-System Status
+
+        # KI-System Flags
         self.ai_enabled = True
         self.training_mode = True
-        self.conversation_log = []
-        
-        # Arbeitsplatz-System: Tracke welche NPCs welche Ressourcen bearbeiten
-        self.workplace_assignments = {}  # {resource_id: [worker_ids]}
-        self.max_workers_per_resource = 2  # Max 2 NPCs pro Ressource (realistisch)
-        
+        self.conversation_log: List[Dict[str, Any]] = []
+
+        # Arbeitsplatz-System: wer arbeitet an welcher Ressource
+        self.workplace_assignments: Dict[str, List[str]] = {}  # {resource_id: [worker_ids]}
+        self.max_workers_per_resource = 1  # 1 Arbeiter pro Ressource für bessere Verteilung
+
         logger.info("🧠 Tribe AI System initialisiert")
     
     def _get_resource_id(self, resource):
@@ -1885,8 +1972,8 @@ class TribeAISystem:
         for resource_id in to_remove:
             del self.workplace_assignments[resource_id]
     
-    def create_tribe(self, center_pos: Tuple[float, float], member_count: int = 102, sprites=None):
-        """Erstelle Stamm mit 3 farbigen Völkern (je 1 Anführer + 33 Untertanen)"""
+    def create_tribe(self, center_pos: Tuple[float, float], member_count: int = 27, sprites=None):
+        """Erstelle Stamm mit 3 farbigen Völkern (je 1 Anführer + 8 Untertanen)"""
         # Erstelle Territorium (viel größer für weit verteilte Völker)
         self.territory = TribeTerritory(center_pos, radius=800)
         
@@ -1928,19 +2015,18 @@ class TribeAISystem:
             self.members.append(leader)
             logger.info(f"👑 {tribe_names[i]} Anführer erstellt bei ({spawn_x:.0f}, {spawn_y:.0f})")
         
-        # Erstelle 99 Untertanen (33 pro Anführer/Volk)
-        followers_per_leader = 33
+        # Erstelle 24 Untertanen (8 pro Anführer/Volk)
+        followers_per_leader = 8
         for leader_idx, leader in enumerate(leaders):
             color = leader.tribe_color
             tribe_name = tribe_names[leader_idx]
-            
+
             for f in range(followers_per_leader):
-                # Untertanen zufällig um ihren Anführer verteilen - KEINE Formation
-                angle = random.uniform(0, 2 * math.pi)  # Komplett zufällige Winkel
-                offset = random.uniform(80, 200)  # Zufällige Entfernungen
+                angle = random.uniform(0, 2 * math.pi)
+                offset = random.uniform(80, 200)
                 spawn_x = leader.position.x + math.cos(angle) * offset
                 spawn_y = leader.position.y + math.sin(angle) * offset
-                
+
                 follower = TribeAIMember(
                     member_id=f"follower_{color}_{f}",
                     spawn_pos=(spawn_x, spawn_y),
@@ -1949,15 +2035,13 @@ class TribeAISystem:
                     is_leader=False,
                     tribe_color=color
                 )
-                
-                # Verbinde Untertan mit Anführer
+
                 follower.leader_id = leader.member_id
-                follower._tribe_system = self  # Referenz für _find_leader
+                follower._tribe_system = self
                 leader.followers.append(follower)
-                
                 followers.append(follower)
                 self.members.append(follower)
-            
+
             logger.info(f"👥 {tribe_name}: {len(leader.followers)} Untertanen erstellt")
         
         # Speichere Listen für einfachen Zugriff
