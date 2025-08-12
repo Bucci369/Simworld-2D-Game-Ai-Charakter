@@ -1220,7 +1220,7 @@ class Game:
                 self.farming_system.handle_farm_action(action_data, self.inventory)
         
         self.all_sprites.update(dt)
-        self.camera.update(self.player.rect)
+        self.camera.update(self.player.rect, dt)  # dt für smooth zoom
         
         # Memory Management - periodische Bereinigung
         self._memory_cleanup_timer += dt
@@ -1390,8 +1390,11 @@ class Game:
         
         # Zoom-Info anzeigen (oben links)
         zoom_info = self.camera.get_zoom_info()
-        zoom_text = f"Zoom: {zoom_info['zoom_percentage']}% (Mausrad/+/-/`)"
-        zoom_color = (255, 255, 255)
+        cache_info = self.camera.get_cache_info()
+        
+        # Erweiterte Zoom-Info mit Performance-Daten
+        zoom_text = f"Zoom: {zoom_info['zoom_percentage']}% | Target: {int(cache_info['target_zoom']*100)}% | Cache: {cache_info['cache_size']}"
+        zoom_color = (0, 255, 255) if abs(cache_info['current_zoom'] - cache_info['target_zoom']) > 0.01 else (255, 255, 255)
         pygame.font.init()
         font = pygame.font.Font(None, 24)
         zoom_surface = font.render(zoom_text, True, zoom_color)
