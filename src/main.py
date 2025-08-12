@@ -495,11 +495,12 @@ class Game:
         self.game_time = GameTime()
 
         if USE_SIMPLE_WORLD:
-            self.world = SimpleWorld()
+            # Verwende die bewährte SimpleWorld
+            self.world = SimpleWorld()  # Verwendet Settings: 10x10 Tiles
             self.camera = Camera(self.world.width, self.world.height, SCREEN_WIDTH, SCREEN_HEIGHT)
             self.map = None
-            spawn_pos = self.world.find_safe_spawn()
-            spawn_x, spawn_y = spawn_pos
+            spawn_x, spawn_y = self.world.width // 2, self.world.height // 2
+            print(f"� SimpleWorld erstellt: {self.world.width}x{self.world.height} Pixel")
         else:
             self.map = TiledMap(MAP_PATH)
             self.camera = Camera(self.map.width, self.map.height, SCREEN_WIDTH, SCREEN_HEIGHT)
@@ -510,7 +511,12 @@ class Game:
         self.player = Player((spawn_x, spawn_y), world=self.world if USE_SIMPLE_WORLD else None)
         self.player.image = load_player_sprite()
         self.all_sprites.add(self.player)
+        
+        # Kamera sofort korrekt auf Player positionieren 
+        print(f"Player spawnt bei: {self.player.rect.center}")
         self.camera.update(self.player.rect)
+        print(f"Kamera positioniert bei: {self.camera.camera.center}")
+        
         self.debug_panel = DebugPanel(SCREEN_HEIGHT)
         
         # Farming-System initialisieren
@@ -565,8 +571,8 @@ class Game:
         tribe_spawn_pos = (player_x, player_y)
         
         if self.use_ai_tribess:
-            # Erstelle Lager für den Stamm
-            storage_pos = (tribe_spawn_pos[0] - 100, tribe_spawn_pos[1] - 100)
+            # 🏘️ STADTPLANUNG: Lager und Marktplatz in der Mitte der Stadt
+            storage_pos = (tribe_spawn_pos[0], tribe_spawn_pos[1])  # Lager in der Mitte
             self.storage_system.create_storage(storage_pos, "red")
             
             # Initialisiere Stadtplaner für den Stamm
@@ -763,21 +769,6 @@ class Game:
                                     break
                         if not eaten:
                             print("Keine essbaren Items im Inventar!")
-                            
-                # Zoom-Steuerung mit Tasten (Bildschirm-Mitte als Zentrum)
-                elif event.key == pygame.K_PLUS or event.key == pygame.K_EQUALS:
-                    # + oder = Taste = Zoom in
-                    center_pos = (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
-                    self.camera.zoom_in(center_pos=center_pos)
-                elif event.key == pygame.K_MINUS:
-                    # - Taste = Zoom out  
-                    center_pos = (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
-                    self.camera.zoom_out(center_pos=center_pos)
-                elif event.key == pygame.K_BACKQUOTE:
-                    # ` (Backtick) Taste = Zoom zurücksetzen (statt 0 wegen Debug Panel Konflikt)
-                    center_pos = (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
-                    self.camera.set_zoom(1.0, center_pos=center_pos)
-                    print("Zoom zurückgesetzt: 100%")
                 elif event.key == pygame.K_SPACE:
                     # SPACE = Zeitraffer-Modus (5x Geschwindigkeit für Sonnen-Demo)
                     if self.game_time.time_speed == 5.0:
@@ -914,14 +905,6 @@ class Game:
                             available_height = self.debug_panel.surface.get_height() - info_panel_height
                             max_scroll = max(0, len(self.debug_panel.assets)*self.debug_panel.entry_h - available_height)
                             self.debug_panel.scroll = min(max_scroll, self.debug_panel.scroll + self.debug_panel.entry_h)
-                        continue
-                
-                # Zoom-Steuerung mit Mausrad (wenn nicht über Debug Panel)
-                mouse_pos = pygame.mouse.get_pos()
-                if event.y > 0:  # Nach oben scrollen = Zoom in
-                    self.camera.zoom_in(center_pos=mouse_pos)
-                elif event.y < 0:  # Nach unten scrollen = Zoom out
-                    self.camera.zoom_out(center_pos=mouse_pos)
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 # Zeit-UI Klicks zuerst prüfen
                 if self.game_time.handle_mouse_event(event):
@@ -1203,15 +1186,6 @@ class Game:
         # Farm-UI zeichnen (nach Licht, aber vor anderen UIs)
         mouse_pos = pygame.mouse.get_pos()
         self.farm_ui.draw(self.screen, self.camera, mouse_pos)
-        
-        # Zoom-Info anzeigen (oben links)
-        zoom_info = self.camera.get_zoom_info()
-        zoom_text = f"Zoom: {zoom_info['zoom_percentage']}% (Mausrad/+/-/`)"
-        zoom_color = (255, 255, 255)
-        pygame.font.init()
-        font = pygame.font.Font(None, 24)
-        zoom_surface = font.render(zoom_text, True, zoom_color)
-        self.screen.blit(zoom_surface, (10, 10))
         
         # UI
         self.debug_panel.draw(self.screen)

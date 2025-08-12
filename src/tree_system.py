@@ -56,11 +56,11 @@ class WoodDrop:
         return not self.collected and self.rect.collidepoint(mouse_world_pos)
         
     def collect(self):
-        """Sammle das Holz"""
+        """Sammle das Holz - 🌲 NEUE BALANCE: 5 Holz pro Baum"""
         if not self.collected:
             self.collected = True
             print("🪵 Holz gesammelt! +5 Wood")
-            return 5  # 5 Holz pro Drop
+            return 5  # 🌲 BLEIBT BEI 5 Holz pro Drop (Baum gibt 5 Holz)
         return 0
 
 class Tree:
@@ -68,6 +68,7 @@ class Tree:
     def __init__(self, x, y, tree_image):
         self.x = x
         self.y = y
+        # 🌲 NEUE BALANCE: 4 Schläge pro Baum (25 HP pro Schlag = 100 HP gesamt)
         self.max_hp = 100
         self.current_hp = 100
         self.alive = True
@@ -96,7 +97,7 @@ class Tree:
         self.hp_bar_timer = 0.0
         
     def take_damage(self, damage=25):
-        """Baum nimmt Schaden"""
+        """Baum nimmt Schaden - 🌲 NEUE BALANCE: 25 Schaden pro Schlag (4 Schläge total)"""
         if not self.alive:
             return False
             
@@ -307,17 +308,129 @@ class Tree:
 
 class TreeSystem:
     """Verwaltet alle Bäume in der Welt"""
-    def __init__(self, simple_world=None):
+    def __init__(self, world=None):
         self.trees = []
         self.wood_drops = []  # Liste aller Wood-Drops
-        self.simple_world = simple_world
+        self.world = world
         
         # Lade Wood-Sprite
         self.wood_image = self._load_wood_image()
         
-        # Konvertiere existierende Bäume aus SimpleWorld
-        if simple_world:
+        # Konvertiere existierende Bäume aus der Welt
+        if world:
             self._convert_existing_trees()
+    
+    def _load_wood_image(self):
+        """Lade Wood-Sprite"""
+        base_dir = os.path.dirname(os.path.dirname(__file__))
+        wood_path = os.path.join(base_dir, 'assets', 'Outdoor decoration', 'wood.png')
+        
+        if os.path.exists(wood_path):
+            try:
+                wood_image = pygame.image.load(wood_path).convert_alpha()
+                print(f"🪵 Wood-Sprite geladen: {wood_image.get_size()}")
+                return wood_image
+            except Exception as e:
+                print(f"⚠️ Fehler beim Laden von wood.png: {e}")
+                
+        # Fallback: Einfacher brauner Block
+        fallback = pygame.Surface((16, 12), pygame.SRCALPHA)
+        fallback.fill((139, 69, 19))  # Braun
+        pygame.draw.rect(fallback, (160, 82, 45), (2, 2, 12, 8))  # Hellerer Kern
+        print("🪵 Fallback-Wood erstellt!")
+        return fallback
+    
+    def _convert_existing_trees(self):
+        """Konvertiere bestehende Bäume aus der Welt zu Tree-Objekten"""
+        if not self.world or not hasattr(self.world, 'trees'):
+            return
+        
+        # Prüfe ob es eine HexagonWorld oder SimpleWorld ist
+        if hasattr(self.world, 'tree_image'):
+            # HexagonWorld
+            tree_image = self.world.tree_image
+            
+            for tree_data in self.world.trees:
+                if isinstance(tree_data, dict):
+                    # Neue HexagonWorld Format
+                    tree = Tree(tree_data['x'], tree_data['y'], tree_image)
+                    tree.current_hp = tree_data.get('hp', 100)
+                    tree.max_hp = tree_data.get('max_hp', 100)
+                    self.trees.append(tree)
+                else:
+                    # Falls es noch alte Format gibt
+                    tree_x, tree_y = tree_data
+                    tree = Tree(tree_x, tree_y, tree_image)
+                    self.trees.append(tree)
+        
+        elif hasattr(self.world, 'oak_tree'):
+            # SimpleWorld
+            tree_image = self.world.oak_tree
+            
+            for tree_x, tree_y in self.world.trees:
+                tree = Tree(tree_x, tree_y, tree_image)
+                self.trees.append(tree)
+            
+            # Entferne original Bäume aus SimpleWorld (werden jetzt von TreeSystem gezeichnet)
+            self.world.trees.clear()
+            
+        print(f"🌳 {len(self.trees)} Bäume zu Tree-System konvertiert!")
+    
+    def handle_click(self, world_pos, player_pos, inventory=None):
+        """Handle Mausklick auf Bäume und Wood-Drops"""
+        mouse_x, mouse_y = world_pos
+        player_x, player_y = player_pos
+        
+        # Prüfe zuerst Wood-Drops (haben Priorität)
+        for wood_drop in self.wood_drops:
+            if wood_drop.is_mouse_over((mouse_x, mouse_y)):
+                # Prüfe Entfernung zum Spieler
+                distance = math.sqrt((wood_drop.x - player_x)**2 + (wood_drop.y - player_y)**2)
+                
+                if distance <= 60:  # Etwas größere Reichweite für Sammeln
+                    wood_amount = wood_drop.collect()
+                    if wood_amount > 0 and inventory:
+                        # Füge Holz zum Inventar hinzu
+                        inventory.add_item("wood", wood_amount)
+                        # Entferne gesammelten Drop aus Liste
+                        self.wood_drops.remove(wood_drop)
+                    return True
+                else:
+                    print("🚶 Zu weit weg! Gehe näher zum Holz.")
+                    return False
+        
+        # Dann prüfe Bäume
+        for tree in self.trees:
+            if tree.alive and tree.is_mouse_over((mouse_x, mouse_y)):
+                # Prüfe Entfernung zum Spieler
+                distance = math.sqrt((tree.x - player_x)**2 + (tree.y - player_y)**2)
+                
+                if distance <= 50:
+                    result = tree.take_damage(25)  # 25% Schaden
+                    
+                    # Wenn Baum gefällt wurde, erstelle Wood-Drop
+                    if result and result != False:  # result ist entweder False oder (x, y) Position
+                        wood_pos = result
+                        wood_drop = WoodDrop(wood_pos[0], wood_pos[1], self.wood_image)
+                        self.wood_drops.append(wood_drop)
+                        print("🪵 Holz ist erschienen! Klicke darauf zum Sammeln.")
+                        
+                        # Entferne gefällten Baum auch aus der HexagonWorld wenn nötig
+                        if hasattr(self.world, 'remove_tree'):
+                            # Finde entsprechenden Baum in der HexagonWorld
+                            for world_tree in self.world.trees:
+                                if (isinstance(world_tree, dict) and 
+                                    abs(world_tree['x'] - tree.x) < 10 and 
+                                    abs(world_tree['y'] - tree.y) < 10):
+                                    self.world.remove_tree(world_tree)
+                                    break
+                    
+                    return True
+                else:
+                    print("🚶 Zu weit weg! Gehe näher an den Baum.")
+                    return False
+        
+        return False
             
     def _load_wood_image(self):
         """Lade Wood-Sprite"""
@@ -338,23 +451,6 @@ class TreeSystem:
         pygame.draw.rect(fallback, (160, 82, 45), (2, 2, 12, 8))  # Hellerer Kern
         print("🪵 Fallback-Wood erstellt!")
         return fallback
-            
-        
-    def _convert_existing_trees(self):
-        """Konvertiere bestehende Bäume aus SimpleWorld zu Tree-Objekten"""
-        if not self.simple_world or not hasattr(self.simple_world, 'trees'):
-            return
-            
-        tree_image = self.simple_world.oak_tree
-        
-        for tree_x, tree_y in self.simple_world.trees:
-            tree = Tree(tree_x, tree_y, tree_image)
-            self.trees.append(tree)
-            
-        print(f"🌳 {len(self.trees)} Bäume zu Tree-System konvertiert!")
-        
-        # Entferne original Bäume aus SimpleWorld (werden jetzt von TreeSystem gezeichnet)
-        self.simple_world.trees.clear()
         
     def handle_click(self, world_pos, player_pos, inventory=None):
         """Handle Mausklick auf Bäume und Wood-Drops"""

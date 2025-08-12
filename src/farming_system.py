@@ -262,8 +262,11 @@ class Animal(pygame.sprite.Sprite):
                 # Wähle Position in der Nähe
                 offset_x = random.randint(-100, 100)
                 offset_y = random.randint(-100, 100)
-                new_x = max(50, min(self.world.width - 50, self.rect.centerx + offset_x))
-                new_y = max(50, min(self.world.height - 50, self.rect.centery + offset_y))
+                # Verwende die richtigen Eigenschaften je nach Welttyp
+                world_width = getattr(self.world, 'world_width', getattr(self.world, 'width', 800))
+                world_height = getattr(self.world, 'world_height', getattr(self.world, 'height', 600))
+                new_x = max(50, min(world_width - 50, self.rect.centerx + offset_x))
+                new_y = max(50, min(world_height - 50, self.rect.centery + offset_y))
                 self.target_pos = (new_x, new_y)
                 self.moving = True
     

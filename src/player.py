@@ -141,10 +141,21 @@ class Player(pygame.sprite.Sprite):
                     tentative = current + step
                     new_rect = self.rect.copy()
                     new_rect.center = (round(tentative.x), round(tentative.y))
-                    # Kollision mit Wasser prüfen
-                    if self.world and hasattr(self.world, 'is_blocked_rect') and self.world.is_blocked_rect(new_rect):
-                        # Stop direkt vor Wasser
+                    
+                    # Kollisionserkennung abhängig vom Welt-Typ
+                    collision = False
+                    if self.world:
+                        if hasattr(self.world, 'is_walkable'):
+                            # HexagonWorld
+                            collision = not self.world.is_walkable(tentative.x, tentative.y)
+                        elif hasattr(self.world, 'is_blocked_rect'):
+                            # SimpleWorld
+                            collision = self.world.is_blocked_rect(new_rect)
+                    
+                    if collision:
+                        # Stop vor unbegehbarem Terrain
                         self.target_pos = None
+                        print(f"🚫 Unbegehbares Terrain! Position: ({tentative.x:.1f}, {tentative.y:.1f})")
                     else:
                         self.rect = new_rect
                 self._update_direction(delta)

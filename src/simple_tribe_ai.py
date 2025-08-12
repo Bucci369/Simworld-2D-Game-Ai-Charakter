@@ -2,9 +2,9 @@ import pygame
 import random
 import logging
 import math
+import time
 from enum import Enum
 from typing import List, Dict, Any
-import time
 from ai_leader import AILeader, Task, TaskType, Priority
 
 # Logging setup
@@ -58,7 +58,9 @@ class SimpleNPC:
         self.velocity = pygame.Vector2(0, 0)
         self.max_speed = 60
         self.target_tree = None
+        # 🪵 NEUE BALANCE: Max 5 Holz tragen (ein Baum = ein Trip)
         self.carrying_wood = 0
+        self.max_wood_capacity = 5  # Maximal 5 Holz tragen
         
         # Sprite Management
         self.sprite_manager = sprite_manager
@@ -70,7 +72,7 @@ class SimpleNPC:
         
         logger.info(f"🎮 {self.npc_id} ({'Leader' if is_leader else 'Worker'}) verwendet Charakter {self.character_index}")
         
-        self.wood_capacity = 5
+        self.wood_capacity = 5  # Gleich wie max_wood_capacity
         self.target_house = None
         self.leader = None
         self.speech_bubble = None
@@ -79,6 +81,15 @@ class SimpleNPC:
         self.assigned_task = None  # Zugewiesene Task vom KI-Leader
         self.skill_level = random.uniform(0.8, 1.2)  # Individuelle Fähigkeiten
         self.experience = 0        # Erfahrungspunkte
+        
+        # 🔨 NEUE FEATURES: Bauanimation
+        self.is_building = False   # Aktuell am Bauen
+        self.build_animation_timer = 0.0  # Timer für Bauanimation
+        self.build_swing_direction = 1  # 1 oder -1 für Hammer-Schwung
+        
+        # 🪓 NEUE FEATURES: Realistisches Baumfällen
+        self.chop_cooldown = 0.0   # Timer für Baumschläge (alle 2 Sekunden)
+        self.max_chop_cooldown = 2.0  # 2 Sekunden zwischen Schlägen
         
         # Anführer - Befehlsverarbeitung
         if is_leader:
@@ -98,6 +109,17 @@ class SimpleNPC:
             self._update_leader(dt, world_state)
         else:
             self._update_worker(dt, world_state)
+        
+        # 🔨 Update Bauanimation
+        if self.is_building:
+            self.build_animation_timer += dt
+            if self.build_animation_timer >= 0.5:  # Alle 0.5 Sekunden Hammer-Schwung
+                self.build_animation_timer = 0.0
+                self.build_swing_direction *= -1  # Richtung wechseln
+        
+        # 🪓 Update Baum-Schlag Cooldown
+        if self.chop_cooldown > 0:
+            self.chop_cooldown -= dt
         
         # Bewegung anwenden
         if self.velocity.length() > 0:
@@ -135,12 +157,32 @@ class SimpleNPC:
                             self.position.y - current_frame.get_height() // 2
                         ))
                         
-                        # Spiegele das Sprite basierend auf der Bewegungsrichtung
-                        if self.velocity.x < 0:  # Bewegt sich nach links
-                            current_frame = pygame.transform.flip(current_frame, True, False)
+                        # 🔨 BAUANIMATION: Modifiziere Sprite bei Bauarbeit
+                        if self.is_building:
+                            # Kopiere Frame für Modifikation
+                            build_frame = current_frame.copy()
+                            
+                            # Leichte Bewegung während dem Bauen
+                            offset_x = self.build_swing_direction * 2
+                            offset_y = int(math.sin(self.build_animation_timer * 10) * 2)
+                            
+                            # Zeichne modifizierten Frame
+                            surface.blit(build_frame, (screen_pos[0] + offset_x, screen_pos[1] + offset_y))
+                            
+                            # Zeichne Hammer-Symbol über NPC
+                            hammer_x = screen_pos[0] + 20 + offset_x
+                            hammer_y = screen_pos[1] - 10 + offset_y
+                            pygame.draw.circle(surface, (139, 69, 19), (hammer_x, hammer_y), 3)  # Hammer-Kopf
+                            pygame.draw.line(surface, (101, 67, 33), (hammer_x, hammer_y), (hammer_x-5, hammer_y+8), 2)  # Hammer-Stiel
+                        else:
+                            # Normale Sprite-Darstellung
+                            # Spiegele das Sprite basierend auf der Bewegungsrichtung
+                            if self.velocity.x < 0:  # Bewegt sich nach links
+                                current_frame = pygame.transform.flip(current_frame, True, False)
+                            
+                            # Zeichne den Charakter
+                            surface.blit(current_frame, screen_pos)
                         
-                        # Zeichne den Charakter
-                        surface.blit(current_frame, screen_pos)
                         sprite_drawn = True  # Erfolgreich gezeichnet
                         
                         # Debug-Logging (nur gelegentlich)
@@ -445,12 +487,22 @@ class SimpleNPC:
                 self._follow_leader()
             
         elif self.state == NPCState.COLLECTING_WOOD:
+            # 🏠 NEUE BALANCE: Prüfe ob ich mein eigenes Haus baue
+            my_house = world_state.get('house_system').get_house(self.npc_id)
+            
             # NEUE LOGIK: Spielerbefehle haben Vorrang vor automatischer Hauslogik
             if has_player_command and self.current_order == "BUILD_HOUSE":
-                # Spielerbefehl aktiv - weiter sammeln auch wenn eigentlich genug Häuser da sind
+                # Spielerbefehl aktiv - sammle für mein eigenes Haus
                 if self.carrying_wood >= self.wood_capacity:
-                    logger.info(f"🔄 {self.npc_id} wechselt zu RETURNING_TO_STORAGE (Spielerbefehl, Holz: {self.carrying_wood})")
-                    self.state = NPCState.RETURNING_TO_STORAGE
+                    logger.info(f"🔄 {self.npc_id} wechselt zu BUILDING_HOUSE (Spielerbefehl, Holz: {self.carrying_wood})")
+                    self.state = NPCState.BUILDING_HOUSE  # 🏠 NEUE LOGIK: Direkt zum Hausbau
+                else:
+                    self._collect_wood(world_state)
+            elif my_house and not my_house.built:
+                # Ich habe mein eigenes Haus - sammle dafür
+                if self.carrying_wood >= self.wood_capacity:
+                    logger.info(f"🔄 {self.npc_id} wechselt zu BUILDING_HOUSE (eigenes Haus, Holz: {self.carrying_wood})")
+                    self.state = NPCState.BUILDING_HOUSE  # 🏠 NEUE LOGIK: Direkt zum Hausbau
                 else:
                     self._collect_wood(world_state)
             elif not houses_needed and not has_player_command:
@@ -459,16 +511,28 @@ class SimpleNPC:
                 self.speech_bubble = SpeechBubble("Alle Häuser fertig!", 2.0)
                 logger.info(f"✅ {self.npc_id} stoppt Arbeit - alle Häuser fertig")
             elif self.carrying_wood >= self.wood_capacity:
+                # Fallback: Gehe zum Lager (alte Logik)
                 logger.info(f"🔄 {self.npc_id} wechselt zu RETURNING_TO_STORAGE (Holz: {self.carrying_wood})")
                 self.state = NPCState.RETURNING_TO_STORAGE
             else:
                 self._collect_wood(world_state)
                 
         elif self.state == NPCState.RETURNING_TO_STORAGE:
+            # 🏠 NEUE BALANCE: Prüfe ob ich mein eigenes Haus baue
+            my_house = world_state.get('house_system').get_house(self.npc_id)
+            
             # NEUE LOGIK: Spielerbefehle haben Vorrang
             if has_player_command and self.current_order == "BUILD_HOUSE":
-                # Spielerbefehl aktiv - weiter einlagern auch wenn eigentlich genug Häuser da sind
-                self._return_to_storage(world_state)
+                # Spielerbefehl aktiv - gehe zu meinem Haus statt zum Lager
+                if my_house and not my_house.built:
+                    logger.info(f"🏠 {self.npc_id} geht zu eigenem Haus statt zum Lager")
+                    self.state = NPCState.BUILDING_HOUSE
+                else:
+                    self._return_to_storage(world_state)  # Fallback: Lager
+            elif my_house and not my_house.built:
+                # Ich habe mein eigenes Haus - gehe dorthin
+                logger.info(f"🏠 {self.npc_id} geht zu eigenem Haus statt zum Lager")
+                self.state = NPCState.BUILDING_HOUSE
             elif not houses_needed and not has_player_command:
                 # Alle Häuser fertig - stoppe Arbeit (nur wenn kein Spielerbefehl)
                 self.state = NPCState.FOLLOWING_LEADER
@@ -549,30 +613,42 @@ class SimpleNPC:
                 self.velocity = direction * self.max_speed
             else:  # Fälle Baum
                 self.velocity = pygame.Vector2(0, 0)
-                if self.target_tree.take_damage(25):  # Baum wurde gefällt
-                    wood_amount = random.randint(3, 5)
-                    self.carrying_wood += wood_amount
-                    self.speech_bubble = SpeechBubble(f"Habe {wood_amount} Holz gesammelt!", 2.0)
-                    logger.info(f"🪓 {self.npc_id} hat {wood_amount} Holz gesammelt!")
-                    self.target_tree = None
+                
+                # 🪓 REALISTISCHES BAUMFÄLLEN: Nur alle 2 Sekunden schlagen
+                if self.chop_cooldown <= 0:
+                    self.chop_cooldown = self.max_chop_cooldown  # Reset Cooldown
                     
-                    # Wenn genug Holz gesammelt wurde, prüfe ob direkt bauen oder zum Lager
-                    if self.carrying_wood >= self.wood_capacity:
-                        # Prüfe ob Häuser fehlen
-                        houses = [h for h in world_state.get('house_system', {}).houses.values() 
-                                 if h.tribe_color == self.tribe_color and h.built]
-                        npcs = world_state.get('tribe_system', {}).tribes.get(self.tribe_color, [])
+                    if self.target_tree.take_damage(25):  # Baum wurde gefällt (nach 4 Schlägen)
+                        wood_amount = random.randint(4, 5)  # 4-5 Holz pro Baum
+                        self.carrying_wood += wood_amount
+                        self.speech_bubble = SpeechBubble(f"Habe {wood_amount} Holz gesammelt!", 2.0)
+                        logger.info(f"🪓 {self.npc_id} hat {wood_amount} Holz gesammelt!")
+                        self.target_tree = None
                         
-                        if len(houses) < len(npcs):
-                            # Häuser fehlen - direkt bauen!
-                            self.state = NPCState.BUILDING_HOUSE
-                            self.speech_bubble = SpeechBubble(f"Baue Haus mit {self.carrying_wood} Holz!", 3.0)
-                            logger.info(f"🏗️ {self.npc_id} hat {self.carrying_wood} Holz → startet direkten Hausbau!")
-                        else:
-                            # Alle Häuser fertig - zum Lager
-                            logger.info(f"🎒 {self.npc_id} hat genug Holz ({self.carrying_wood}/{self.wood_capacity}), geht zum Lager")
-                            self.speech_bubble = SpeechBubble("Genug Holz! Zurück zum Lager!", 2.0)
-                            self.state = NPCState.RETURNING_TO_STORAGE
+                        # Wenn genug Holz gesammelt wurde, prüfe ob direkt bauen oder zum Lager
+                        if self.carrying_wood >= self.wood_capacity:
+                            # Prüfe ob Häuser fehlen
+                            houses = [h for h in world_state.get('house_system', {}).houses.values() 
+                                     if h.tribe_color == self.tribe_color and h.built]
+                            npcs = world_state.get('tribe_system', {}).tribes.get(self.tribe_color, [])
+                            
+                            if len(houses) < len(npcs):
+                                # Häuser fehlen - direkt bauen!
+                                self.state = NPCState.BUILDING_HOUSE
+                                self.speech_bubble = SpeechBubble(f"Baue Haus mit {self.carrying_wood} Holz!", 3.0)
+                                logger.info(f"🏗️ {self.npc_id} hat {self.carrying_wood} Holz → startet direkten Hausbau!")
+                            else:
+                                # Alle Häuser fertig - zum Lager
+                                logger.info(f"🎒 {self.npc_id} hat genug Holz ({self.carrying_wood}/{self.wood_capacity}), geht zum Lager")
+                                self.speech_bubble = SpeechBubble("Genug Holz! Zurück zum Lager!", 2.0)
+                    else:
+                        # Baum noch nicht gefällt, zeige Fortschritt
+                        hp_percent = int((self.target_tree.current_hp / self.target_tree.max_hp) * 100)
+                        self.speech_bubble = SpeechBubble(f"Fälle Baum... {hp_percent}% HP", 1.8)
+                else:
+                    # Warten auf nächsten Schlag
+                    wait_time = int(self.chop_cooldown) + 1
+                    self.speech_bubble = SpeechBubble(f"Bereite nächsten Schlag vor... {wait_time}s", 0.5)
 
     def _return_to_storage(self, world_state: Dict):
         """Bringe Holz zum Lager"""
@@ -649,7 +725,7 @@ class SimpleNPC:
             self.carrying_wood = 0  # Verhindere Endlosschleife
 
     def _build_house(self, world_state: Dict):
-        """Baue mein eigenes Haus - EINFACHE SKALIERBARE LÖSUNG"""
+        """Baue mein eigenes Haus - REALISTISCHER HAUSBAU MIT BAUPLÄTZEN"""
         # Prüfe ob ich bereits ein Haus habe
         my_house = world_state.get('house_system').get_house(self.npc_id)
         
@@ -676,67 +752,109 @@ class SimpleNPC:
                     house = world_state.get('house_system').build_house_for_npc(self.npc_id, self.tribe_color)
                     if house:
                         self.target_house = house
-                        
-                        # Verwende Holz sofort für den Bau
-                        if self.carrying_wood >= 5:
-                            house.add_resources(wood=5)
-                            self.carrying_wood -= 5
-                            logger.info(f"🏗️ {self.npc_id} startet eigenes Haus mit 5 Holz aus Inventar")
-                        else:
-                            house.add_resources(wood=5)
-                            storage.remove_resources('wood', 5)
-                            logger.info(f"🏗️ {self.npc_id} startet eigenes Haus mit 5 Holz aus Lager")
-                            
+                        logger.info(f"🏗️ {self.npc_id} erstellt Bauplatz für eigenes Haus!")
                         self.speech_bubble = SpeechBubble(f"Baue mein eigenes Haus!", 3.0)
-                        logger.info(f"🏗️ {self.npc_id} erstellt und baut eigenes Haus!")
                     else:
                         logger.info(f"❌ {self.npc_id} konnte kein Haus erstellen")
                         self.state = NPCState.COLLECTING_WOOD
                         return
                 else:
-                    logger.info(f"🌲 {self.npc_id} braucht Holz für eigenes Haus")
+                    logger.info(f"� {self.npc_id} braucht Holz für eigenes Haus")
                     self.state = NPCState.COLLECTING_WOOD
                     return
 
-        # Baue an meinem Haus weiter
+        # 🏗️ NEUE REALISTISCHE BAULOGIK
         if self.target_house:
-            house_pos = pygame.Vector2(self.target_house.position)
-            dist = house_pos.distance_to(self.position)
+            # Hole optimale Bauposition (direkt vor dem Haus)
+            build_pos = pygame.Vector2(self.target_house.get_build_position())
+            current_distance = build_pos.distance_to(self.position)
 
-            if dist > 40:  # Gehe zu meinem Haus
-                direction = (house_pos - self.position).normalize()
+            # Schritt 1: Gehe zur Bauposition
+            if current_distance > 15:  # Muss näher als 15 Pixel sein
+                direction = (build_pos - self.position).normalize()
                 self.velocity = direction * self.max_speed
-                logger.info(f"🚶 {self.npc_id} geht zu eigenem Haus (Entfernung: {dist:.1f})")
-            else:  # Baue an meinem Haus
-                self.velocity = pygame.Vector2(0, 0)
+                self.is_building = False  # 🔨 Keine Bauanimation beim Laufen
+                if random.random() < 0.1:  # Gelegentliche Updates
+                    logger.info(f"🚶 {self.npc_id} geht zum Bauplatz (Entfernung: {current_distance:.1f})")
+                    self.speech_bubble = SpeechBubble("Gehe zum Bauplatz...", 2.0)
+                return
+            
+            # Schritt 2: Prüfe ob ich in der Bauzone bin
+            if not self.target_house.is_in_build_zone((self.position.x, self.position.y)):
+                # Bewege mich in die Bauzone
+                house_center = pygame.Vector2(
+                    self.target_house.position.x + self.target_house.size[0]/2,
+                    self.target_house.position.y + self.target_house.size[1]/2
+                )
+                direction = (house_center - self.position).normalize()
+                self.velocity = direction * (self.max_speed * 0.3)  # Langsamer in der Bauzone
+                self.is_building = False  # 🔨 Keine Bauanimation beim Positionieren
+                if random.random() < 0.05:
+                    self.speech_bubble = SpeechBubble("Positioniere mich zum Bauen...", 2.0)
+                return
+            
+            # Schritt 3: Ich bin in der Bauzone - kann bauen!
+            self.velocity = pygame.Vector2(0, 0)  # Stoppe Bewegung
+            self.is_building = True  # 🔨 Aktiviere Bauanimation
+            
+            # Verwende Holz aus Inventar oder Lager für Bau
+            if not self.target_house.built:
+                wood_needed = self.target_house.get_build_requirements()['wood']
                 
-                # Baue aktiv am Haus - füge jedes Frame 1 Holz hinzu
-                if not self.target_house.built:
-                    # Füge kontinuierlich Ressourcen hinzu (1 Holz pro Frame)
-                    added = self.target_house.add_resources(wood=1)
-                    if added:
-                        logger.info(f"🔨 {self.npc_id} baut an eigenem Haus ({self.target_house.build_progress:.0%} fertig)")
+                if wood_needed > 0:
+                    # Prüfe ob ich Holz habe oder aus Lager nehmen kann
+                    wood_to_deposit = 0
+                    if self.carrying_wood > 0:
+                        wood_to_deposit = min(self.carrying_wood, 1)  # 1 Holz pro Frame
+                        self.carrying_wood -= wood_to_deposit
+                    else:
+                        # Versuche Holz aus Lager zu nehmen
+                        storage = world_state.get('storage_system').get_storage(self.tribe_color)
+                        if storage and storage.get_resource_amount('wood') > 0:
+                            storage.remove_resources('wood', 1)
+                            wood_to_deposit = 1
                     
-                    if self.target_house.built:
-                        logger.info(f"🏠 {self.npc_id} hat eigenes Haus fertiggestellt!")
-                        self.speech_bubble = SpeechBubble("🏠 Mein Haus ist fertig!", 3.0)
-                        self.target_house = None
-                        # Spielerbefehl erfüllt - entferne current_order
-                        if hasattr(self, 'current_order') and self.current_order == "BUILD_HOUSE":
-                            self.current_order = None
-                            logger.info(f"✅ {self.npc_id} hat Spielerbefehl BUILD_HOUSE erfüllt")
-                        # Anführer geht zu IDLE, Worker zu FOLLOWING_LEADER
-                        self.state = NPCState.IDLE if self.is_leader else NPCState.FOLLOWING_LEADER
-                else:
-                    # Mein Haus ist fertig
-                    logger.info(f"✅ {self.npc_id}: Mein Haus ist jetzt fertig!")
+                    if wood_to_deposit > 0:
+                        # Deponiere Holz am Bauplatz (aktualisiert wood_deposited und Counter)
+                        deposited = self.target_house.deposit_wood(wood_to_deposit)
+                        if deposited > 0:
+                            # Verwende abgelegtes Holz für Bau (aktualisiert wood_used und build_progress)
+                            used = self.target_house.add_resources(wood=deposited)
+                            if used and random.random() < 0.1:  # Gelegentliche Updates
+                                progress_percent = int(self.target_house.build_progress * 100)
+                                logger.info(f"🔨 {self.npc_id} baut am Haus ({progress_percent}% fertig)")
+                                self.speech_bubble = SpeechBubble(f"Baue... {progress_percent}%", 1.5)
+                    else:
+                        # Kein Holz verfügbar - sammle mehr
+                        logger.info(f"🌲 {self.npc_id} braucht mehr Holz zum Bauen")
+                        self.state = NPCState.COLLECTING_WOOD
+                        self.speech_bubble = SpeechBubble("Brauche mehr Holz!", 2.0)
+                        self.is_building = False  # 🔨 Deaktiviere Bauanimation
+                        return
+                
+                # Prüfe ob Haus fertig ist
+                if self.target_house.built:
+                    logger.info(f"🏠 {self.npc_id} hat eigenes Haus fertiggestellt!")
+                    self.speech_bubble = SpeechBubble("🏠 Mein Haus ist fertig!", 3.0)
                     self.target_house = None
+                    self.is_building = False  # 🔨 Deaktiviere Bauanimation
                     # Spielerbefehl erfüllt - entferne current_order
                     if hasattr(self, 'current_order') and self.current_order == "BUILD_HOUSE":
                         self.current_order = None
                         logger.info(f"✅ {self.npc_id} hat Spielerbefehl BUILD_HOUSE erfüllt")
                     # Anführer geht zu IDLE, Worker zu FOLLOWING_LEADER
                     self.state = NPCState.IDLE if self.is_leader else NPCState.FOLLOWING_LEADER
+            else:
+                # Haus ist bereits fertig
+                logger.info(f"✅ {self.npc_id}: Haus ist jetzt fertig!")
+                self.target_house = None
+                self.is_building = False  # 🔨 Deaktiviere Bauanimation
+                # Spielerbefehl erfüllt - entferne current_order
+                if hasattr(self, 'current_order') and self.current_order == "BUILD_HOUSE":
+                    self.current_order = None
+                    logger.info(f"✅ {self.npc_id} hat Spielerbefehl BUILD_HOUSE erfüllt")
+                # Anführer geht zu IDLE, Worker zu FOLLOWING_LEADER
+                self.state = NPCState.IDLE if self.is_leader else NPCState.FOLLOWING_LEADER
 
     def _follow_leader(self):
         """Soziales Verhalten: Sammle dich beim Anführer für Gespräche"""
@@ -861,6 +979,8 @@ class SimpleNPC:
                           npc.state in [NPCState.IDLE, NPCState.FOLLOWING_LEADER]]
             
             workers_assigned = 0
+            houses_assigned = min(needed_houses, len(idle_workers))
+            
             for worker in idle_workers[:needed_houses]:  # Max so viele wie gebraucht
                 worker.current_order = "BUILD_HOUSE"
                 worker.state = NPCState.COLLECTING_WOOD
@@ -868,7 +988,13 @@ class SimpleNPC:
                 workers_assigned += 1
                 logger.info(f"📢 {self.npc_id} → {worker.npc_id}: Baue Haus auf Spieler-Befehl!")
             
-            if wood_available < needed_houses * wood_per_house:
+            # Berechne Holzbedarf
+            wood_per_house = 5
+            total_wood_needed = needed_houses * wood_per_house
+            storage = world_state.get('storage_system').get_storage(self.tribe_color)
+            wood_available = storage.get_resource_amount('wood') if storage else 0
+            
+            if wood_available < total_wood_needed:
                 response = f"Jawohl! {workers_assigned} Arbeiter starten {houses_assigned} Häuser (benötigen mehr Holz für alle {needed_houses})"
             else:
                 response = f"Jawohl! {workers_assigned} Arbeiter bauen {houses_assigned} Häuser in Teams!"

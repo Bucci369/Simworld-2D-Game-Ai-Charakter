@@ -170,12 +170,94 @@ class SimpleWorld:
                                 break
         self.background.blit(outline_surface, (0,0))
 
-        # Trees avoid features
-        wanted_trees = int(self.area_width_tiles * self.area_height_tiles * density)
+        # 🌲 NEUE WALDGEBIETE: Erstelle dichte Waldgebiete für besseres Gameplay
+        self._generate_forest_areas(density)
+        
+        # Load decorative sprites
+        self._load_decoration_sprites()
+        
+        # Generate decorative objects on grass areas
+        self._generate_decorations()
+        
+        # Vom Debug Panel platzierte dynamische Objekte
+        self.dynamic_objects = []  # (image, x, y)
+    
+    def _generate_forest_areas(self, base_density):
+        """Erstelle 3-4 dichte Waldgebiete in der Welt"""
         self.trees = []
-        max_attempts = wanted_trees * 5
+        
+        # 🌲 WALDGEBIETE: Definiere 3-4 Waldgebiete
+        forest_areas = [
+            # Nordwest-Wald (oben links)
+            {'center': (self.width * 0.2, self.height * 0.2), 'radius': 300, 'density': 0.4},
+            # Nordost-Wald (oben rechts) 
+            {'center': (self.width * 0.8, self.height * 0.2), 'radius': 250, 'density': 0.35},
+            # Südwest-Wald (unten links) - größer, da Spieler hier spawnt
+            {'center': (self.width * 0.25, self.height * 0.75), 'radius': 400, 'density': 0.45},
+            # Zentral-Wald (Mitte-rechts)
+            {'center': (self.width * 0.7, self.height * 0.6), 'radius': 200, 'density': 0.3},
+        ]
+        
+        print(f"🌲 Erstelle {len(forest_areas)} Waldgebiete...")
+        
+        for forest in forest_areas:
+            center_x, center_y = forest['center']
+            radius = forest['radius']
+            density = forest['density']
+            
+            # Berechne Anzahl Bäume für dieses Waldgebiet
+            area_size = 3.14159 * radius * radius  # Kreisfläche
+            trees_in_forest = int(area_size / (TILE_SIZE * TILE_SIZE) * density)
+            
+            print(f"  🌳 Waldgebiet bei ({int(center_x)}, {int(center_y)}) - Radius: {radius}, Bäume: {trees_in_forest}")
+            
+            attempts = 0
+            trees_placed = 0
+            max_attempts = trees_in_forest * 10
+            
+            while trees_placed < trees_in_forest and attempts < max_attempts:
+                attempts += 1
+                
+                # Zufällige Position im Kreis
+                angle = random.uniform(0, 2 * 3.14159)
+                distance = random.uniform(0, radius)
+                
+                tx = int(center_x + distance * random.uniform(-1, 1))
+                ty = int(center_y + distance * random.uniform(-1, 1))
+                
+                # Prüfe Grenzen
+                if (tx < 0 or ty < 0 or 
+                    tx > self.width - self.oak_tree.get_width() or 
+                    ty > self.height - self.oak_tree.get_height()):
+                    continue
+                
+                # Prüfe Überlappung mit Features
+                tile_x = tx // TILE_SIZE
+                tile_y = ty // TILE_SIZE
+                if 0 <= tile_x < self.area_width_tiles and 0 <= tile_y < self.area_height_tiles:
+                    code = self.overlay[tile_y][tile_x]
+                    if code in ('water', 'path', 'farm'):
+                        continue
+                
+                # Prüfe Abstand zu anderen Bäumen (mindestens 30 Pixel)
+                too_close = False
+                for existing_x, existing_y in self.trees:
+                    distance_to_existing = ((tx - existing_x)**2 + (ty - existing_y)**2) ** 0.5
+                    if distance_to_existing < 30:
+                        too_close = True
+                        break
+                
+                if not too_close:
+                    self.trees.append((tx, ty))
+                    trees_placed += 1
+        
+        # Zusätzlich verstreute Einzelbäume für Sammler
+        scattered_trees = int(self.area_width_tiles * self.area_height_tiles * base_density * 0.3)
+        print(f"🌿 Zusätzlich {scattered_trees} verstreute Bäume...")
+        
         attempts = 0
-        while len(self.trees) < wanted_trees and attempts < max_attempts:
+        max_attempts = scattered_trees * 5
+        while len(self.trees) - sum(int(area['radius']**2 * 3.14159 / (TILE_SIZE**2) * area['density']) for area in forest_areas) < scattered_trees and attempts < max_attempts:
             attempts += 1
             tx = random.randint(0, self.width - self.oak_tree.get_width())
             ty = random.randint(0, self.height - self.oak_tree.get_height())
@@ -185,8 +267,20 @@ class SimpleWorld:
                 code = self.overlay[tile_y][tile_x]
                 if code in ('water', 'path', 'farm'):
                     continue
-            self.trees.append((tx, ty))
+            
+            # Prüfe Abstand zu anderen Bäumen
+            too_close = False
+            for existing_x, existing_y in self.trees:
+                distance_to_existing = ((tx - existing_x)**2 + (ty - existing_y)**2) ** 0.5
+                if distance_to_existing < 25:
+                    too_close = True
+                    break
+                    
+            if not too_close:
+                self.trees.append((tx, ty))
+
         self.trees.sort(key=lambda p: p[1])  # painter's order
+        print(f"🌲 Insgesamt {len(self.trees)} Bäume in der Welt platziert!")
         
         # Load decorative sprites
         self._load_decoration_sprites()

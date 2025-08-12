@@ -32,11 +32,25 @@ class House:
             
         self.rect = pygame.Rect(position[0], position[1], self.size[0], self.size[1])
         
-        # Bau-Anforderungen (VEREINFACHT für skalierbare Völker)
-        self.wood_needed = 5
+        # 🏗️ NEUE FEATURE: Bauplatz-Zonen für realistischen Hausbau
+        self.build_zone_radius = 25  # NPCs müssen innerhalb 25 Pixel zum Bauplatz
+        self.build_zone_rect = pygame.Rect(
+            position[0] - self.build_zone_radius, 
+            position[1] - self.build_zone_radius,
+            self.size[0] + 2 * self.build_zone_radius,
+            self.size[1] + 2 * self.build_zone_radius
+        )
+        
+        # 🏠 NEUE BALANCE: Haus kostet 25 Holz (5 Bäume = 5 Trips á 5 Holz)
+        self.wood_needed = 25  # 25 Holz benötigt (war 5)
         self.stone_needed = 0  # Kein Stein benötigt - nur Holz für schnellen Hausbau
         self.wood_used = 0
         self.stone_used = 0
+        
+        # 🔨 HAUSBAU-MECHANIK: Holz sammeln bis 25, dann bauen
+        self.wood_deposited = 0  # Holz das am Bauplatz liegt
+        self.construction_hits = 0  # Anzahl Bau-Schläge (10 needed)
+        self.max_construction_hits = 10  # 10 Schläge für Hausbau
         
     def _load_house_sprite(self) -> Optional[pygame.Surface]:
         """Lade haus.png Sprite"""
@@ -104,7 +118,7 @@ class House:
         return foundation
     
     def add_resources(self, wood: int = 0, stone: int = 0) -> bool:
-        """Füge Bau-Ressourcen hinzu"""
+        """Füge Bau-Ressourcen hinzu - 🏠 NEUE BALANCE"""
         added_wood = min(wood, self.wood_needed - self.wood_used)
         added_stone = min(stone, self.stone_needed - self.stone_used)
         
@@ -123,10 +137,58 @@ class House:
         
         return added_wood > 0 or added_stone > 0
     
+    def deposit_wood(self, wood_amount: int) -> int:
+        """Lagere Holz am Bauplatz ab - 🏠 NEUE MECHANIK"""
+        space_available = self.wood_needed - self.wood_deposited
+        wood_to_deposit = min(wood_amount, space_available)
+        self.wood_deposited += wood_to_deposit
+        
+        print(f"🪵 {wood_to_deposit} Holz am Bauplatz abgelegt ({self.wood_deposited}/{self.wood_needed})")
+        return wood_to_deposit  # Wie viel tatsächlich abgelegt wurde
+    
+    def can_start_construction(self) -> bool:
+        """Prüfe ob Bau beginnen kann (25 Holz vorhanden)"""
+        return self.wood_deposited >= self.wood_needed
+    
+    def perform_construction_hit(self) -> bool:
+        """Führe einen Bau-Schlag aus - 🔨 NEUE MECHANIK"""
+        if not self.can_start_construction():
+            return False
+        
+        self.construction_hits += 1
+        progress_percent = (self.construction_hits / self.max_construction_hits) * 100
+        
+        print(f"🔨 Bau-Schlag {self.construction_hits}/{self.max_construction_hits} ({progress_percent:.0f}%)")
+        
+        # Haus fertig nach 10 Schlägen
+        if self.construction_hits >= self.max_construction_hits:
+            self.built = True
+            self.build_progress = 1.0
+            print(f"🏠 Haus für {self.owner_id} ({self.tribe_color}) fertiggestellt!")
+            return True
+        
+        # Update Baufortschritt
+        self.build_progress = self.construction_hits / self.max_construction_hits
+        return False
+    
+    def is_in_build_zone(self, npc_position: Tuple[float, float]) -> bool:
+        """Prüft ob NPC in der Bauzone steht (nah genug zum Bauen)"""
+        npc_pos = pygame.Vector2(npc_position)
+        house_center = pygame.Vector2(self.position.x + self.size[0]/2, self.position.y + self.size[1]/2)
+        distance = npc_pos.distance_to(house_center)
+        return distance <= self.build_zone_radius
+    
+    def get_build_position(self) -> Tuple[float, float]:
+        """Gibt optimale Position zum Bauen zurück (vor dem Haus)"""
+        # Position direkt vor dem Haus (unten)
+        build_x = self.position.x + self.size[0] / 2
+        build_y = self.position.y + self.size[1] + 10  # 10 Pixel vor dem Haus
+        return (build_x, build_y)
+    
     def get_build_requirements(self) -> Dict[str, int]:
         """Hole noch benötigte Ressourcen"""
         return {
-            'wood': max(0, self.wood_needed - self.wood_used),
+            'wood': max(0, self.wood_needed - self.wood_deposited),  # Verwende wood_deposited statt wood_used
             'stone': max(0, self.stone_needed - self.stone_used)
         }
     
@@ -142,86 +204,207 @@ class House:
             # Bauplatz/Baustelle
             screen.blit(self.foundation_sprite, (screen_x, screen_y))
             
+            # 🏗️ NEUE FEATURE: Visualisiere Bauzone
+            self._draw_build_zone(screen, camera_rect)
+            
             # Baufortschritt anzeigen
             if self.build_progress > 0:
                 self._draw_construction_progress(screen, screen_x, screen_y)
     
-    def _draw_construction_progress(self, screen: pygame.Surface, screen_x: float, screen_y: float):
-        """Zeige Baufortschritt"""
+    def _draw_build_zone(self, screen: pygame.Surface, camera_rect: pygame.Rect):
+        """Zeichne die Bauzone als gestrichelten Kreis"""
         try:
-            # Fortschrittsbalken
-            bar_width = self.size[0]
-            bar_height = 6
-            bar_x = screen_x
-            bar_y = screen_y - 15
+            # Berechne Bauzone-Center in Bildschirmkoordinaten
+            zone_center_x = self.position.x + self.size[0]/2 - camera_rect.left
+            zone_center_y = self.position.y + self.size[1]/2 - camera_rect.top
             
-            # Hintergrund
-            pygame.draw.rect(screen, (100, 100, 100), (bar_x, bar_y, bar_width, bar_height))
+            # Zeichne gestrichelten Kreis um die Bauzone
+            import math
+            for angle in range(0, 360, 15):  # Alle 15 Grad einen Punkt
+                rad = math.radians(angle)
+                x = zone_center_x + self.build_zone_radius * math.cos(rad)
+                y = zone_center_y + self.build_zone_radius * math.sin(rad)
+                pygame.draw.circle(screen, (200, 200, 100), (int(x), int(y)), 2)
+        except:
+            pass
+    
+    def _draw_construction_progress(self, screen: pygame.Surface, screen_x: float, screen_y: float):
+        """Zeige Baufortschritt und Holz-Stapel"""
+        try:
+            # 🪵 NEUE FEATURE: Zeige Holz-Stapel am Bauplatz
+            if self.wood_deposited > 0:
+                self._draw_wood_pile(screen, screen_x, screen_y)
             
-            # Fortschritt
-            progress_width = int(bar_width * self.build_progress)
-            pygame.draw.rect(screen, (100, 200, 100), (bar_x, bar_y, progress_width, bar_height))
+            # Fortschrittsbalken (nur wenn Bau begonnen)
+            if self.construction_hits > 0:
+                bar_width = self.size[0]
+                bar_height = 6
+                bar_x = screen_x
+                bar_y = screen_y - 15
+                
+                # Hintergrund
+                pygame.draw.rect(screen, (100, 100, 100), (bar_x, bar_y, bar_width, bar_height))
+                
+                # Baufortschritt (basierend auf construction_hits)
+                progress_width = int(bar_width * (self.construction_hits / self.max_construction_hits))
+                pygame.draw.rect(screen, (100, 200, 100), (bar_x, bar_y, progress_width, bar_height))
+                
+                # Rahmen
+                pygame.draw.rect(screen, (255, 255, 255), (bar_x, bar_y, bar_width, bar_height), 1)
+                
+                # Bau-Prozent-Text
+                font = pygame.font.Font(None, 16)
+                percent_text = f"Bau: {self.construction_hits}/{self.max_construction_hits}"
+                text_surface = font.render(percent_text, True, (255, 255, 255))
+                text_x = bar_x + bar_width + 5
+                screen.blit(text_surface, (text_x, bar_y - 2))
             
-            # Rahmen
-            pygame.draw.rect(screen, (255, 255, 255), (bar_x, bar_y, bar_width, bar_height), 1)
+            # Holz-Status Text
+            if not self.built:
+                font = pygame.font.Font(None, 14)
+                wood_text = f"Holz: {self.wood_deposited}/{self.wood_needed}"
+                text_color = (100, 255, 100) if self.can_start_construction() else (255, 255, 100)
+                wood_surface = font.render(wood_text, True, text_color)
+                
+                text_x = screen_x
+                text_y = screen_y - 30
+                screen.blit(wood_surface, (text_x, text_y))
+        except:
+            pass
+    
+    def _draw_wood_pile(self, screen: pygame.Surface, screen_x: float, screen_y: float):
+        """Zeichne Holz-Stapel am Bauplatz"""
+        try:
+            # Zeichne Holz-Stapel basierend auf wood_deposited
+            wood_piles = min(self.wood_deposited // 5, 5)  # Max 5 Stapel
+            pile_size = 8
             
-            # Prozent-Text
-            font = pygame.font.Font(None, 16)
-            percent_text = f"{int(self.build_progress * 100)}%"
-            text_surface = font.render(percent_text, True, (255, 255, 255))
-            text_x = bar_x + bar_width + 5
-            screen.blit(text_surface, (text_x, bar_y - 2))
+            for i in range(wood_piles):
+                pile_x = screen_x + 10 + (i * 12)
+                pile_y = screen_y + self.size[1] - 15
+                
+                # Braune Holz-Rechtecke
+                pygame.draw.rect(screen, (139, 69, 19), (pile_x, pile_y, pile_size, pile_size))
+                pygame.draw.rect(screen, (101, 67, 33), (pile_x, pile_y, pile_size, pile_size), 1)
+            
+            # Zeige einzelnes Holz für Reste
+            remainder = self.wood_deposited % 5
+            if remainder > 0 and wood_piles < 5:
+                for j in range(remainder):
+                    single_x = screen_x + 10 + (wood_piles * 12) + (j * 3)
+                    single_y = screen_y + self.size[1] - 10
+                    pygame.draw.rect(screen, (160, 82, 45), (single_x, single_y, 4, 8))
         except:
             pass
 
 
 class CityPlanner:
-    """Stadtplanung - Platziert Häuser intelligent ohne Überlappung"""
+    """Stadtplanung - 🏘️ NEUE FEATURE: Schönes Stadtraster mit Lager und Marktplatz"""
     
-    def __init__(self, center: Tuple[float, float], radius: float = 200):
+    def __init__(self, center: Tuple[float, float], radius: float = 300):
         self.center = pygame.Vector2(center)
         self.radius = radius
         self.house_positions = []  # Bereits belegte Positionen
-        self.min_house_distance = 80  # Mindestabstand zwischen Häusern
+        self.min_house_distance = 100  # Mehr Abstand zwischen Häusern für schönes Raster
+        
+        # 🏘️ STADTPLANUNG: Definiere spezielle Gebäude-Bereiche
+        self.storage_position = None  # Lager in der Mitte
+        self.marketplace_position = None  # Marktplatz
+        self.has_storage = False
+        self.has_marketplace = False
+        
+        # Raster-Parameter
+        self.grid_size = 120  # Abstand zwischen Häusern im Raster
+        self.rows = 3  # 3 Reihen von Häusern
+        self.houses_per_row = 4  # 4 Häuser pro Reihe
+        
+    def setup_city_center(self):
+        """Erstelle Lager und Marktplatz in der Stadtmitte"""
+        if not self.has_storage:
+            # Lager genau in der Mitte
+            self.storage_position = (self.center.x, self.center.y)
+            self.has_storage = True
+            print(f"🏬 Lager geplant bei {self.storage_position}")
+        
+        if not self.has_marketplace:
+            # Marktplatz neben dem Lager
+            self.marketplace_position = (self.center.x + 80, self.center.y)
+            self.has_marketplace = True
+            print(f"🏪 Marktplatz geplant bei {self.marketplace_position}")
         
     def find_house_position(self, tribe_color: str) -> Tuple[float, float]:
-        """Finde optimale Position für neues Haus"""
-        attempts = 0
-        max_attempts = 50
+        """Finde Position im schönen Stadtraster - 🏘️ NEUE SYSTEMATIK"""
+        house_index = len(self.house_positions)
         
-        while attempts < max_attempts:
-            # Spiralförmige Platzierung vom Zentrum nach außen
-            angle = (len(self.house_positions) * 2.4) % (2 * math.pi)  # Golden angle
-            distance = 60 + (len(self.house_positions) * 15)  # Spirale nach außen
+        # Setup city center falls noch nicht geschehen
+        if not self.has_storage:
+            self.setup_city_center()
+        
+        # Bestimme Reihe und Position in der Reihe
+        row = house_index // self.houses_per_row
+        col = house_index % self.houses_per_row
+        
+        # Berechne Raster-Position um das Zentrum herum
+        if row < self.rows:
+            # Normalraster: Häuser um Lager/Marktplatz anordnen
+            start_x = self.center.x - (self.houses_per_row * self.grid_size) // 2
+            start_y = self.center.y - 150  # Häuser oberhalb des Zentrums
+            
+            x = start_x + (col * self.grid_size)
+            y = start_y + (row * 80)  # Geringerer Zeilenabstand
+        else:
+            # Zusätzliche Häuser: Spiralförmig um die Stadt
+            angle = (house_index - (self.rows * self.houses_per_row)) * 0.8
+            distance = 200 + ((house_index - (self.rows * self.houses_per_row)) * 30)
             
             x = self.center.x + math.cos(angle) * distance
             y = self.center.y + math.sin(angle) * distance
-            
-            position = (x, y)
-            
-            # Prüfe Überlappung mit anderen Häusern
-            if self._is_position_valid(position):
-                self.house_positions.append(position)
-                print(f"🏠 Hausposition gefunden: {position} für {tribe_color}")
-                return position
-            
-            attempts += 1
         
-        # Fallback: Position am Rand
-        fallback_x = self.center.x + len(self.house_positions) * 70
-        fallback_y = self.center.y
-        fallback_position = (fallback_x, fallback_y)
+        position = (x, y)
+        
+        # Prüfe Überlappung und justiere falls nötig
+        if self._is_position_valid(position):
+            self.house_positions.append(position)
+            print(f"🏠 Hausposition im Raster: Reihe {row+1}, Haus {col+1} bei {position}")
+            return position
+        else:
+            # Fallback: Suche freie Position in der Nähe
+            for offset_x in range(-50, 51, 25):
+                for offset_y in range(-50, 51, 25):
+                    test_pos = (x + offset_x, y + offset_y)
+                    if self._is_position_valid(test_pos):
+                        self.house_positions.append(test_pos)
+                        print(f"🏠 Hausposition (justiert): {test_pos}")
+                        return test_pos
+        
+        # Final fallback
+        fallback_position = (self.center.x + len(self.house_positions) * 70, self.center.y + 100)
         self.house_positions.append(fallback_position)
-        print(f"🏠 Fallback-Position: {fallback_position} für {tribe_color}")
+        print(f"🏠 Fallback-Position: {fallback_position}")
         return fallback_position
-    
+        
     def _is_position_valid(self, position: Tuple[float, float]) -> bool:
-        """Prüfe ob Position für Haus geeignet ist"""
+        """Prüfe ob Position für Haus geeignet ist (erweiterte Prüfung)"""
+        # Prüfe Abstand zu anderen Häusern
         for existing_pos in self.house_positions:
             distance = math.sqrt((position[0] - existing_pos[0])**2 + 
                                (position[1] - existing_pos[1])**2)
             if distance < self.min_house_distance:
                 return False
+        
+        # Prüfe Abstand zu Lager und Marktplatz
+        if self.storage_position:
+            storage_distance = math.sqrt((position[0] - self.storage_position[0])**2 + 
+                                       (position[1] - self.storage_position[1])**2)
+            if storage_distance < 60:  # Mindestens 60 Pixel Abstand zum Lager
+                return False
+                
+        if self.marketplace_position:
+            market_distance = math.sqrt((position[0] - self.marketplace_position[0])**2 + 
+                                      (position[1] - self.marketplace_position[1])**2)
+            if market_distance < 60:  # Mindestens 60 Pixel Abstand zum Marktplatz
+                return False
+        
         return True
 
 
