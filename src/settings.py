@@ -7,7 +7,7 @@ FPS = 60  # Frames per second
 SCREEN_WIDTH = 1600
 SCREEN_HEIGHT = 900
 FULLSCREEN = False  # Auf True setzen für Vollbild
-DEBUG_PANEL_WIDTH = 260  # Breite der Debug-Leiste
+DEBUG_PANEL_WIDTH = 180  # Breite der Debug-Leiste (verkleinert von 260)
 DEBUG_ENABLE_AUTO_SCAN = True  # PNGs automatisch auflisten
 
 TILE_SIZE = 32
@@ -26,13 +26,13 @@ WATER_TILE_PATH = os.path.join(ASSETS_DIR, 'Tiles', 'Water_Middle.png')
 PATH_TILE_PATH = os.path.join(ASSETS_DIR, 'Tiles', 'Path_Middle.png')
 
 # Simple World Konfiguration (anpassen um Welt größer/kleiner zu machen)
-SIMPLE_WORLD_WIDTH_TILES = 10    # Winzige Welt: 10x10 Tiles
-SIMPLE_WORLD_HEIGHT_TILES = 10   # Winzige Welt: 10x10 Tiles
-SIMPLE_WORLD_TREE_DENSITY = 0.1  # Mehr Bäume für kleine Welt (10%)
+SIMPLE_WORLD_WIDTH_TILES = 50    # Größere Welt: 50x50 Tiles (1600x1600 Pixel)
+SIMPLE_WORLD_HEIGHT_TILES = 50   # Größere Welt: 50x50 Tiles (1600x1600 Pixel)
+SIMPLE_WORLD_TREE_DENSITY = 0.08  # Weniger dichte Bäume für größere Welt
 SIMPLE_WORLD_SEED = 42           # Für reproduzierbare Platzierung; None für Zufall
-SIMPLE_WORLD_FARMLAND_PATCHES = 1  # Nur 1 Farmland-Patch
-SIMPLE_WORLD_FARMLAND_RADIUS_RANGE = (1, 2)  # Sehr kleine Farmland-Patches
-SIMPLE_WORLD_LAKE_RADII = (2, 1)  # Winziger See
+SIMPLE_WORLD_FARMLAND_PATCHES = 3  # Mehr Farmland-Patches
+SIMPLE_WORLD_FARMLAND_RADIUS_RANGE = (2, 4)  # Größere Farmland-Patches
+SIMPLE_WORLD_LAKE_RADII = (4, 3)  # Größerer See
 SIMPLE_WORLD_LAKE_CENTER_REL = (0.65, 0.35)  # versetzt, damit Pfad nicht durch muss
 HOUSE_IMAGE_PATH = os.path.join(ASSETS_DIR, 'Outdoor decoration', 'House.png')
 

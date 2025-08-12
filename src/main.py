@@ -25,14 +25,19 @@ class DebugPanel:
         self.visible = True  # Standardmäßig sichtbar
         self.width = DEBUG_PANEL_WIDTH
         self.surface = pygame.Surface((self.width, screen_height), pygame.SRCALPHA)
-        self.font = pygame.font.SysFont('Arial', 14)
+        self.font = pygame.font.SysFont('Arial', 12)  # Verkleinert von 14
         self.assets = []  # list of dict(name, image, thumb)
         self.selected = None
         self.scroll = 0
-        self.entry_h = 48
+        self.entry_h = 35  # Verkleinert von 48
         self.current_frame = 0  # Welcher Frame des Sprite-Sheets gerade angezeigt wird
-        if True:  # auto scan
-            self.scan_assets()
+        # Debug Panel Assets deaktiviert für Performance
+        # if True:  # auto scan
+        #     self.scan_assets()
+        
+        # Single Asset Loading System
+        self.current_single_asset = None
+        self.single_asset_mode = True  # Neuer Modus: Ein Asset zur Zeit
 
     def toggle(self):
         self.visible = not self.visible
@@ -193,7 +198,7 @@ class DebugPanel:
                     thumbs = []
                     for frame in frames:
                         fw, fh = frame.get_size()
-                        scale = min(40/max(1,fw), 40/max(1,fh), 1)
+                        scale = min(28/max(1,fw), 28/max(1,fh), 1)  # Verkleinert von 40
                         thumb = pygame.transform.smoothscale(frame, (int(fw*scale), int(fh*scale))) if scale != 1 else frame
                         thumbs.append(thumb)
                     
@@ -231,6 +236,50 @@ class DebugPanel:
             # Falls Vergleich fehlschlägt, nimm an dass sie unterschiedlich sind
             return True
     
+    def load_single_asset(self, asset_path):
+        """Lädt ein einzelnes Asset für die Platzierung"""
+        try:
+            if not os.path.exists(asset_path):
+                print(f"❌ Asset nicht gefunden: {asset_path}")
+                return False
+            
+            full_img = pygame.image.load(asset_path).convert_alpha()
+            filename = os.path.basename(asset_path)
+            
+            # Erstelle Thumbnail
+            w, h = full_img.get_size()
+            scale = min(28/max(1,w), 28/max(1,h), 1)  # Verkleinert von 40
+            thumb = pygame.transform.smoothscale(full_img, (int(w*scale), int(h*scale))) if scale != 1 else full_img
+            
+            self.current_single_asset = {
+                'name': filename,
+                'frames': [full_img],  # Einfach als einzelner Frame
+                'thumbs': [thumb],
+                'image': full_img
+            }
+            
+            print(f"✅ Asset geladen: {filename}")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Fehler beim Laden von {asset_path}: {e}")
+            return False
+    
+    def get_selected(self):
+        """Gibt das aktuell geladene Asset zurück"""
+        if self.single_asset_mode and self.current_single_asset:
+            return self.current_single_asset
+        elif not self.single_asset_mode and self.selected is not None:
+            # Alter Modus (falls wieder aktiviert)
+            if 0 <= self.selected < len(self.assets):
+                asset = self.assets[self.selected].copy()
+                frame_idx = getattr(self, 'current_frame', 0)
+                if frame_idx >= len(asset['frames']):
+                    frame_idx = 0
+                asset['image'] = asset['frames'][frame_idx]
+                return asset
+        return None
+
     def _is_likely_sprite_sheet(self, filename, w, h):
         """Prüft anhand von Dateiname und Dimensionen ob es ein Sprite-Sheet ist"""
         filename_lower = filename.lower()
@@ -346,18 +395,7 @@ class DebugPanel:
                             self.current_frame = 0  # Reset frame bei neuer Auswahl
                             print(f"Asset ausgewählt: {self.assets[idx]['name']}")
 
-    def get_selected(self):
-        if self.selected is None:
-            return None
-        if 0 <= self.selected < len(self.assets):
-            asset = self.assets[self.selected].copy()
-            # Füge den aktuellen Frame als 'image' hinzu für Rückwärtskompatibilität
-            frame_idx = getattr(self, 'current_frame', 0)
-            if frame_idx >= len(asset['frames']):
-                frame_idx = 0
-            asset['image'] = asset['frames'][frame_idx]
-            return asset
-        return None
+    # get_selected wurde bereits oben neu definiert
 
     def draw(self, screen):
         if not self.visible:
@@ -368,59 +406,97 @@ class DebugPanel:
         mx, my = pygame.mouse.get_pos()
         left = screen.get_width() - self.width
         
-        # Info-Text oben
-        info_lines = [
-            "=== WORLD EDITOR ===",
-            "Shift+Click: Platzieren",
-            "Ctrl+Shift+Click: 5x5 Raster",
-            "Alt+Shift+Click: Zufall x5",
-            "",
-            "1-9,0: Frame wählen (1-10)",
-            "←→: Frame vor/zurück",
-            "↑↓: Scrollen",
-            "PgUp/PgDn: Schnell scrollen", 
-            "S: Speichern",
-            "C: Alles löschen", 
-            "R: Assets neu laden",
-            "Tab/F1: Panel toggle",
-            "=================="
-        ]
+        # Info-Text oben (für Single Asset Modus, verkürzt)
+        if self.single_asset_mode:
+            info_lines = [
+                "=== ASSET MODE ===",
+                "L: Asset laden",
+                "Shift+Klick: Platzieren",
+                "V: Edit-Modus",
+                "Edit: Klick&Drag, Del",
+                "",
+                "S: Speichern",
+                "Tab: Panel toggle",
+                "=================="
+            ]
+        else:
+            info_lines = [
+                "=== WORLD EDITOR ===",
+                "Shift+Click: Platzieren",
+                "Ctrl+Shift+Click: 5x5 Raster",
+                "Alt+Shift+Click: Zufall x5",
+                "",
+                "1-9,0: Frame wählen (1-10)",
+                "←→: Frame vor/zurück",
+                "↑↓: Scrollen",
+                "PgUp/PgDn: Schnell scrollen", 
+                "S: Speichern",
+                "C: Alles löschen", 
+                "R: Assets neu laden",
+                "Tab/F1: Panel toggle",
+                "=================="
+            ]
         
         info_y = 5
         for line in info_lines:
             info_surf = self.font.render(line, True, (200,255,200))
             self.surface.blit(info_surf, (5, info_y))
-            info_y += 16
+            info_y += 14  # Verkleinert von 16
         
-        start_y += len(info_lines) * 16 + 10
+        start_y += len(info_lines) * 14 + 10  # Angepasst an neue Zeilenhöhe
         
-        for i, a in enumerate(self.assets):
-            y = start_y + i*self.entry_h
-            if y > h or y + self.entry_h < 0:
-                continue
+        # Single Asset Anzeige
+        if self.single_asset_mode and self.current_single_asset:
+            # Zeige aktuell geladenes Asset
+            y = start_y
             rect = pygame.Rect(0, y, self.width, self.entry_h)
-            over = left <= mx < left+self.width and 0 <= my - y < self.entry_h
-            bg = (60,60,70) if over else (45,45,55)
-            if i == self.selected:
-                bg = (bg[0]+30, bg[1]+30, bg[2]+30)
+            bg = (60, 100, 60)  # Grüner Hintergrund für geladenes Asset
             pygame.draw.rect(self.surface, bg, rect)
             
-            # Zeige aktuellen Frame oder ersten Thumbnail
-            thumb_to_show = a['thumbs'][0]  # Default: erster Frame
-            if i == self.selected and hasattr(self, 'current_frame') and self.current_frame < len(a['thumbs']):
-                thumb_to_show = a['thumbs'][self.current_frame]
+            # Asset Thumbnail
+            thumb = self.current_single_asset['thumbs'][0]
+            self.surface.blit(thumb, (6, y + (self.entry_h - thumb.get_height())//2))
             
-            self.surface.blit(thumb_to_show, (6, y + (self.entry_h - thumb_to_show.get_height())//2))
-            
-            # Zeige Frame-Info bei ausgewähltem Asset
-            name_text = a['name'][:18]  # Kürzer für mehr Platz
-            if i == self.selected and len(a['frames']) > 1:
-                frame_num = getattr(self, 'current_frame', 0) + 1
-                total_frames = len(a['frames'])
-                name_text += f" ({frame_num}/{total_frames})"
-            
-            name_surf = self.font.render(name_text[:40], True, (230,230,230))  # Mehr Platz
+            # Asset Name
+            name_text = self.current_single_asset['name'][:35]
+            name_surf = self.font.render(name_text, True, (255, 255, 255))
             self.surface.blit(name_surf, (54, y + (self.entry_h - name_surf.get_height())//2))
+        elif self.single_asset_mode:
+            # Kein Asset geladen - zeige Hinweis
+            y = start_y
+            hint_text = "Kein Asset geladen"
+            hint_surf = self.font.render(hint_text, True, (200, 200, 200))
+            self.surface.blit(hint_surf, (10, y))
+        
+        # Alter Modus (falls aktiviert)
+        if not self.single_asset_mode:
+            for i, a in enumerate(self.assets):
+                y = start_y + i*self.entry_h
+                if y > h or y + self.entry_h < 0:
+                    continue
+                rect = pygame.Rect(0, y, self.width, self.entry_h)
+                over = left <= mx < left+self.width and 0 <= my - y < self.entry_h
+                bg = (60,60,70) if over else (45,45,55)
+                if i == self.selected:
+                    bg = (bg[0]+30, bg[1]+30, bg[2]+30)
+                pygame.draw.rect(self.surface, bg, rect)
+                
+                # Zeige aktuellen Frame oder ersten Thumbnail
+                thumb_to_show = a['thumbs'][0]  # Default: erster Frame
+                if i == self.selected and hasattr(self, 'current_frame') and self.current_frame < len(a['thumbs']):
+                    thumb_to_show = a['thumbs'][self.current_frame]
+                
+                self.surface.blit(thumb_to_show, (6, y + (self.entry_h - thumb_to_show.get_height())//2))
+                
+                # Zeige Frame-Info bei ausgewähltem Asset
+                name_text = a['name'][:18]  # Kürzer für mehr Platz
+                if i == self.selected and len(a['frames']) > 1:
+                    frame_num = getattr(self, 'current_frame', 0) + 1
+                    total_frames = len(a['frames'])
+                    name_text += f" ({frame_num}/{total_frames})"
+                
+                name_surf = self.font.render(name_text[:40], True, (230,230,230))  # Mehr Platz
+                self.surface.blit(name_surf, (54, y + (self.entry_h - name_surf.get_height())//2))
         pygame.draw.rect(self.surface, (90,90,110), (0,0,self.width,h), 1)
         screen.blit(self.surface, (screen.get_width()-self.width, 0))
 
@@ -606,6 +682,17 @@ class Game:
         
         # Beispiel-Tiere platzieren
         self._place_demo_animals()
+        
+        # Memory Management Timer
+        self._memory_cleanup_timer = 0.0
+        self._memory_cleanup_interval = 60.0  # Alle 60 Sekunden aufräumen
+        
+        # Drag & Drop State
+        self.edit_mode = False  # Toggle für Edit-Modus
+        
+        # Asset Loading State
+        self.asset_input_mode = False
+        self.asset_input_text = ""
 
     def run(self):
         while self.running:
@@ -666,8 +753,9 @@ class Game:
                     self.debug_panel.toggle()
                     print("Debug Panel umgeschaltet!")
                 elif event.key == pygame.K_r:
-                    self.debug_panel.scan_assets()
-                    print("Assets neu geladen!")
+                    # Asset-Scanning deaktiviert für Performance
+                    # self.debug_panel.scan_assets()
+                    print("Asset-Scanning deaktiviert für Performance!")
                 elif event.key == pygame.K_UP and self.debug_panel.visible:
                     # Pfeil hoch: Nach oben scrollen
                     self.debug_panel.scroll = max(0, self.debug_panel.scroll - self.debug_panel.entry_h)
@@ -880,6 +968,50 @@ class Game:
                 elif event.key == pygame.K_c and not pygame.key.get_pressed()[pygame.K_LSHIFT]:
                     # C = Chat öffnen/schließen
                     self.chat_system.toggle_chat()
+                elif event.key == pygame.K_v:
+                    # V = Edit-Modus toggle (für Drag & Drop)
+                    self.edit_mode = not self.edit_mode
+                    if USE_SIMPLE_WORLD and hasattr(self.world, 'end_drag'):
+                        self.world.end_drag()  # Beende aktuelles Dragging
+                    print(f"🎨 Edit-Modus: {'AN' if self.edit_mode else 'AUS'}")
+                elif event.key == pygame.K_DELETE and self.edit_mode:
+                    # DELETE = Ausgewähltes Objekt löschen (nur im Edit-Modus)
+                    if USE_SIMPLE_WORLD and hasattr(self.world, 'delete_selected_object'):
+                        self.world.delete_selected_object()
+                elif event.key == pygame.K_l:
+                    # L = Asset laden (Input-Modus aktivieren)
+                    self.asset_input_mode = True
+                    self.asset_input_text = ""
+                    print("📝 Asset-Eingabe aktiviert - tippe Pfad und drücke Enter")
+                    print("Beispiele: assets/Outdoor decoration/House.png")
+                elif self.asset_input_mode:
+                    # Asset-Input-Modus
+                    if event.key == pygame.K_RETURN:
+                        # Enter = Asset laden
+                        if self.asset_input_text.strip():
+                            asset_path = self.asset_input_text.strip()
+                            # Absoluter Pfad vom Game-Ordner aus
+                            full_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), asset_path)
+                            if self.debug_panel.load_single_asset(full_path):
+                                print(f"✅ Asset '{asset_path}' erfolgreich geladen!")
+                            else:
+                                print(f"❌ Konnte Asset '{asset_path}' nicht laden!")
+                        self.asset_input_mode = False
+                        self.asset_input_text = ""
+                    elif event.key == pygame.K_ESCAPE:
+                        # Escape = Input abbrechen
+                        self.asset_input_mode = False
+                        self.asset_input_text = ""
+                        print("Asset-Eingabe abgebrochen")
+                    elif event.key == pygame.K_BACKSPACE:
+                        # Backspace = Zeichen löschen
+                        self.asset_input_text = self.asset_input_text[:-1]
+                        print(f"📝 {self.asset_input_text}")
+                    else:
+                        # Normales Zeichen hinzufügen
+                        if event.unicode and event.unicode.isprintable():
+                            self.asset_input_text += event.unicode
+                            print(f"📝 {self.asset_input_text}")
                 # Tier-Interaktion (behalten)
                 elif event.key == pygame.K_f:
                     # F = Tier füttern
@@ -908,6 +1040,12 @@ class Game:
             elif event.type == pygame.MOUSEMOTION:
                 # Zeit-UI Hover-Effekt 
                 self.game_time.handle_mouse_event(event)
+                
+                # Drag & Drop Update (nur im Edit-Modus)
+                if self.edit_mode and USE_SIMPLE_WORLD and hasattr(self.world, 'dragging'):
+                    if self.world.dragging:
+                        world_pos = self.camera.screen_to_world(event.pos)
+                        self.world.update_drag(world_pos)
             elif event.type == pygame.MOUSEWHEEL:
                 # Mausrad-Events separat behandeln
                 if self.debug_panel.visible:
@@ -966,6 +1104,11 @@ class Game:
                     if self.house_system.handle_click((world_x, world_y), self.player.rect.center):
                         # Haus wurde geklickt
                         continue
+                    elif self.edit_mode and USE_SIMPLE_WORLD and hasattr(self.world, 'start_drag'):
+                        # Edit-Modus: Drag & Drop starten
+                        if not self.world.start_drag((world_x, world_y)):
+                            # Kein Objekt gefunden - normale Bewegung
+                            self.player.set_target((world_x, world_y))
                     elif (mods & pygame.KMOD_SHIFT) and USE_SIMPLE_WORLD and self.world:
                         # Debug Panel Platzierung
                         if not self.debug_panel.place_into_world(self.world, (world_x, world_y)):
@@ -974,6 +1117,10 @@ class Game:
                         # Normale Spieler-Bewegung
                         self.player.set_target((world_x, world_y))
             elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+                # Drag & Drop beenden (im Edit-Modus)
+                if self.edit_mode and USE_SIMPLE_WORLD and hasattr(self.world, 'end_drag'):
+                    self.world.end_drag()
+                
                 # Farm-UI Mouse-Up Events
                 self.farm_ui.handle_mouse_event(event, self.camera)
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 3:
@@ -1074,6 +1221,12 @@ class Game:
         
         self.all_sprites.update(dt)
         self.camera.update(self.player.rect)
+        
+        # Memory Management - periodische Bereinigung
+        self._memory_cleanup_timer += dt
+        if self._memory_cleanup_timer >= self._memory_cleanup_interval:
+            self._memory_cleanup_timer = 0.0
+            self._cleanup_memory()
 
     def save_world(self):
         """Speichert die aktuelle Welt mit allen platzierten Objekten"""
@@ -1133,6 +1286,31 @@ class Game:
             return False
         
         return False
+    
+    def _cleanup_memory(self):
+        """Bereinigt Memory Leaks periodisch"""
+        try:
+            # 1. World Asset Cache bereinigen
+            if USE_SIMPLE_WORLD and hasattr(self.world, 'cleanup_cache'):
+                self.world.cleanup_cache()
+            
+            # 2. NPC Speech Bubbles bereinigen
+            if hasattr(self, 'tribe_system') and hasattr(self.tribe_system, 'tribes'):
+                for tribe_color, npcs in self.tribe_system.tribes.items():
+                    for npc in npcs:
+                        if hasattr(npc, 'speech_bubble') and npc.speech_bubble:
+                            if npc.speech_bubble.is_expired():
+                                npc.speech_bubble = None
+            
+            # 3. Dynamic Objects begrenzen
+            if USE_SIMPLE_WORLD and hasattr(self.world, 'dynamic_objects'):
+                if len(self.world.dynamic_objects) > 150:
+                    self.world.dynamic_objects = self.world.dynamic_objects[-100:]
+            
+            print(f"🧹 Memory cleanup durchgeführt")
+            
+        except Exception as e:
+            print(f"❌ Memory cleanup Fehler: {e}")
 
     def auto_load_world(self):
         """Lädt automatisch beim Start eine gespeicherte Welt"""
@@ -1255,6 +1433,49 @@ class Game:
         
         # 💬 Chat-System zeichnen (über allem)
         self.chat_system.draw(self.screen)
+        
+        # Edit-Modus Anzeige
+        if self.edit_mode:
+            edit_text = "🎨 EDIT-MODUS - V: Toggle | Klick: Auswählen/Ziehen | Del: Löschen"
+            edit_color = (255, 255, 0)
+            pygame.font.init()
+            edit_font = pygame.font.Font(None, 24)
+            edit_surface = edit_font.render(edit_text, True, edit_color)
+            # Zentriert oben
+            edit_x = (SCREEN_WIDTH - edit_surface.get_width()) // 2
+            edit_y = 50
+            
+            # Hintergrund für bessere Lesbarkeit
+            bg_rect = pygame.Rect(edit_x - 10, edit_y - 5, edit_surface.get_width() + 20, edit_surface.get_height() + 10)
+            pygame.draw.rect(self.screen, (0, 0, 0, 180), bg_rect)
+            pygame.draw.rect(self.screen, (255, 255, 0), bg_rect, 2)
+            
+            self.screen.blit(edit_surface, (edit_x, edit_y))
+        
+        # Asset-Input Anzeige
+        if self.asset_input_mode:
+            input_text = f"📝 Asset-Pfad: {self.asset_input_text}|"
+            input_color = (0, 255, 255)
+            pygame.font.init()
+            input_font = pygame.font.Font(None, 24)
+            input_surface = input_font.render(input_text, True, input_color)
+            # Zentriert unten
+            input_x = (SCREEN_WIDTH - input_surface.get_width()) // 2
+            input_y = SCREEN_HEIGHT - 100
+            
+            # Hintergrund für bessere Lesbarkeit
+            bg_rect = pygame.Rect(input_x - 10, input_y - 5, input_surface.get_width() + 20, input_surface.get_height() + 10)
+            pygame.draw.rect(self.screen, (0, 0, 0, 200), bg_rect)
+            pygame.draw.rect(self.screen, (0, 255, 255), bg_rect, 2)
+            
+            self.screen.blit(input_surface, (input_x, input_y))
+            
+            # Hilfe-Text
+            help_text = "Enter: Laden | Escape: Abbrechen | Backspace: Löschen"
+            help_surface = pygame.font.Font(None, 18).render(help_text, True, (200, 200, 200))
+            help_x = (SCREEN_WIDTH - help_surface.get_width()) // 2
+            help_y = input_y + 35
+            self.screen.blit(help_surface, (help_x, help_y))
         
         pygame.display.flip()
         

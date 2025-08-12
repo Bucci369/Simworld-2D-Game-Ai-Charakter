@@ -145,12 +145,24 @@ class SimpleWorld:
                 self.house_image = pygame.image.load(HOUSE_IMAGE_PATH).convert_alpha()
         except Exception:
             self.house_image = None
+        
+        # Portal erstellen (2D-Darstellung da portal.glb 3D ist)
+        self.portal_image = self._create_portal_sprite()
+        
         self.structures = []
         if self.house_image:
             hx_tiles = center_x + 5
             hy_tiles = center_y - 2
             if 0 <= hx_tiles < tiles_x and 0 <= hy_tiles < tiles_y and self.overlay[hy_tiles][hx_tiles] != 'water':
-                self.structures.append((hx_tiles * TILE_SIZE, (hy_tiles+1) * TILE_SIZE - self.house_image.get_height()))
+                self.structures.append(('house', hx_tiles * TILE_SIZE, (hy_tiles+1) * TILE_SIZE - self.house_image.get_height()))
+        
+        # Portal südlich des Sees platzieren
+        if self.portal_image:
+            # Finde Südrand des Sees
+            portal_x = lake_cx
+            portal_y = lake_cy + lake_ry_tiles + 1  # 1 Tile südlich des Sees
+            if 0 <= portal_x < tiles_x and 0 <= portal_y < tiles_y and self.overlay[portal_y][portal_x] != 'water':
+                self.structures.append(('portal', portal_x * TILE_SIZE, (portal_y+1) * TILE_SIZE - self.portal_image.get_height()))
 
         # Optional: simple outlines (lake + farmland) for better contrast
         outline_surface = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
@@ -182,20 +194,55 @@ class SimpleWorld:
         # Vom Debug Panel platzierte dynamische Objekte
         self.dynamic_objects = []  # (image, x, y)
     
+    def _create_portal_sprite(self):
+        """Erstelle ein 2D Portal-Sprite (da portal.glb 3D ist)"""
+        # Erstelle ein animiertes Portal-Sprite
+        portal_size = 64
+        portal = pygame.Surface((portal_size, portal_size), pygame.SRCALPHA)
+        
+        # Äußerer Ring (lila/blau)
+        pygame.draw.circle(portal, (100, 50, 200), (portal_size//2, portal_size//2), portal_size//2 - 2, 6)
+        pygame.draw.circle(portal, (150, 100, 255), (portal_size//2, portal_size//2), portal_size//2 - 8, 4)
+        
+        # Innerer Bereich (dunkel mit Sternen-Effekt)
+        pygame.draw.circle(portal, (20, 10, 50), (portal_size//2, portal_size//2), portal_size//2 - 12)
+        
+        # Glitzer-Effekte (kleine weiße Punkte)
+        import random
+        random.seed(42)  # Für konsistente Darstellung
+        for _ in range(8):
+            x = random.randint(portal_size//4, 3*portal_size//4)
+            y = random.randint(portal_size//4, 3*portal_size//4)
+            pygame.draw.circle(portal, (255, 255, 255), (x, y), 2)
+        
+        # Zentrum (hell leuchtend)
+        pygame.draw.circle(portal, (200, 150, 255), (portal_size//2, portal_size//2), 8)
+        pygame.draw.circle(portal, (255, 255, 255), (portal_size//2, portal_size//2), 4)
+        
+        return portal
+
     def _generate_forest_areas(self, base_density):
         """Erstelle 3-4 dichte Waldgebiete in der Welt"""
         self.trees = []
         
-        # 🌲 WALDGEBIETE: Definiere 3-4 Waldgebiete
+        # 🌲 WALDGEBIETE: Definiere 6-8 Waldgebiete für größere Welt
         forest_areas = [
             # Nordwest-Wald (oben links)
-            {'center': (self.width * 0.2, self.height * 0.2), 'radius': 300, 'density': 0.4},
+            {'center': (self.width * 0.15, self.height * 0.15), 'radius': 200, 'density': 0.3},
             # Nordost-Wald (oben rechts) 
-            {'center': (self.width * 0.8, self.height * 0.2), 'radius': 250, 'density': 0.35},
+            {'center': (self.width * 0.85, self.height * 0.15), 'radius': 180, 'density': 0.25},
             # Südwest-Wald (unten links) - größer, da Spieler hier spawnt
-            {'center': (self.width * 0.25, self.height * 0.75), 'radius': 400, 'density': 0.45},
-            # Zentral-Wald (Mitte-rechts)
-            {'center': (self.width * 0.7, self.height * 0.6), 'radius': 200, 'density': 0.3},
+            {'center': (self.width * 0.2, self.height * 0.8), 'radius': 250, 'density': 0.35},
+            # Südost-Wald (unten rechts)
+            {'center': (self.width * 0.8, self.height * 0.85), 'radius': 220, 'density': 0.3},
+            # Zentral-Wald (Mitte)
+            {'center': (self.width * 0.5, self.height * 0.3), 'radius': 160, 'density': 0.25},
+            # West-Wald (links mitte)
+            {'center': (self.width * 0.1, self.height * 0.5), 'radius': 140, 'density': 0.2},
+            # Ost-Wald (rechts mitte)  
+            {'center': (self.width * 0.9, self.height * 0.6), 'radius': 160, 'density': 0.25},
+            # Süd-Zentral-Wald (unten mitte)
+            {'center': (self.width * 0.6, self.height * 0.7), 'radius': 130, 'density': 0.2},
         ]
         
         print(f"🌲 Erstelle {len(forest_areas)} Waldgebiete...")
@@ -290,6 +337,11 @@ class SimpleWorld:
         
         # Vom Debug Panel platzierte dynamische Objekte
         self.dynamic_objects = []  # (image, x, y)
+        
+        # Drag & Drop System
+        self.selected_object = None  # Aktuell ausgewähltes Objekt
+        self.dragging = False        # Gerade am Ziehen
+        self.drag_offset = (0, 0)    # Offset zwischen Maus und Objektmitte
 
     def render(self, surface: pygame.Surface, camera_rect: pygame.Rect):
         surface.blit(self.background, (-camera_rect.left, -camera_rect.top))
@@ -304,19 +356,38 @@ class SimpleWorld:
                 if rect.colliderect(view_rect):
                     surface.blit(sprite, (dx - camera_rect.left, dy - camera_rect.top))
         
-        # Strukturen (Haus) vor Bäumen oder nach Bedarf sortieren
+        # Strukturen (Haus, Portal) vor Bäumen oder nach Bedarf sortieren
         if self.structures:
-            for (sx, sy) in self.structures:
-                if self.house_image:
+            for structure in self.structures:
+                structure_type, sx, sy = structure
+                if structure_type == 'house' and self.house_image:
                     rect = pygame.Rect(sx, sy, self.house_image.get_width(), self.house_image.get_height())
                     if rect.colliderect(view_rect):
                         surface.blit(self.house_image, (sx - camera_rect.left, sy - camera_rect.top))
+                elif structure_type == 'portal' and self.portal_image:
+                    rect = pygame.Rect(sx, sy, self.portal_image.get_width(), self.portal_image.get_height())
+                    if rect.colliderect(view_rect):
+                        surface.blit(self.portal_image, (sx - camera_rect.left, sy - camera_rect.top))
         # Dynamische Objekte (sortiert nach y für Zeichnungsreihenfolge)
-        for obj in sorted(self.dynamic_objects, key=lambda e: e['y']):
+        # Bereinige alte/ungültige Objekte (Memory Leak Fix)
+        if len(self.dynamic_objects) > 100:  # Begrenze auf max 100 Objekte
+            self.dynamic_objects = self.dynamic_objects[-50:]  # Behalte nur die letzten 50
+        
+        for i, obj in enumerate(sorted(self.dynamic_objects, key=lambda e: e['y'])):
             img, ox, oy = obj['image'], obj['x'], obj['y']
             rect = pygame.Rect(ox, oy, img.get_width(), img.get_height())
             if rect.colliderect(view_rect):
                 surface.blit(img, (ox - camera_rect.left, oy - camera_rect.top))
+                
+                # Zeige Auswahl-Rahmen für ausgewähltes/gezogenes Objekt
+                if self.selected_object and self.selected_object[1] == i:
+                    # Zeichne Auswahl-Rahmen
+                    screen_rect = pygame.Rect(ox - camera_rect.left - 2, oy - camera_rect.top - 2, 
+                                            img.get_width() + 4, img.get_height() + 4)
+                    if self.dragging:
+                        pygame.draw.rect(surface, (255, 255, 0), screen_rect, 3)  # Gelb beim Ziehen
+                    else:
+                        pygame.draw.rect(surface, (0, 255, 0), screen_rect, 2)    # Grün bei Auswahl
         for (x, y) in self.trees:
             tree_rect = pygame.Rect(x, y, self.oak_tree.get_width(), self.oak_tree.get_height())
             if tree_rect.colliderect(view_rect):
@@ -381,8 +452,9 @@ class SimpleWorld:
         """Lädt dynamische Objekte aus gespeicherten Daten"""
         self.dynamic_objects.clear()
         
-        # Asset-Cache für bereits geladene Bilder
-        asset_cache = {}
+        # Asset-Cache für bereits geladene Bilder (mit Memory Management)
+        if not hasattr(self, '_asset_cache'):
+            self._asset_cache = {}
         
         for obj_data in objects_data:
             image_name = obj_data.get('image_name', 'unknown.png')
@@ -390,7 +462,14 @@ class SimpleWorld:
             y = obj_data['y']
             
             # Lade Bild falls noch nicht im Cache
-            if image_name not in asset_cache:
+            if image_name not in self._asset_cache:
+                # Cache-Größe begrenzen (max 50 Assets)
+                if len(self._asset_cache) > 50:
+                    # Entferne älteste Einträge
+                    keys_to_remove = list(self._asset_cache.keys())[:10]
+                    for key in keys_to_remove:
+                        del self._asset_cache[key]
+                
                 # Suche Bild in assets Ordner
                 base_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'assets')
                 image_path = None
@@ -404,7 +483,7 @@ class SimpleWorld:
                 if image_path and os.path.exists(image_path):
                     try:
                         loaded_image = pygame.image.load(image_path).convert_alpha()
-                        asset_cache[image_name] = loaded_image
+                        self._asset_cache[image_name] = loaded_image
                     except:
                         print(f"Konnte Bild nicht laden: {image_name}")
                         continue
@@ -413,7 +492,7 @@ class SimpleWorld:
                     continue
             
             # Füge Objekt hinzu
-            image = asset_cache[image_name]
+            image = self._asset_cache[image_name]
             obj_data = {
                 'image': image,
                 'x': x,
@@ -421,6 +500,72 @@ class SimpleWorld:
                 'image_name': image_name
             }
             self.dynamic_objects.append(obj_data)
+    
+    def cleanup_cache(self):
+        """Bereinigt den Asset-Cache"""
+        if hasattr(self, '_asset_cache'):
+            self._asset_cache.clear()
+    
+    def get_object_at_position(self, world_pos):
+        """Findet das oberste Objekt an einer Weltposition"""
+        x, y = world_pos
+        
+        # Prüfe dynamic_objects (von hinten nach vorne für oberste Ebene)
+        for i in range(len(self.dynamic_objects) - 1, -1, -1):
+            obj = self.dynamic_objects[i]
+            obj_rect = pygame.Rect(obj['x'], obj['y'], obj['image'].get_width(), obj['image'].get_height())
+            if obj_rect.collidepoint(x, y):
+                return ('dynamic', i, obj)
+        
+        return None
+    
+    def start_drag(self, world_pos):
+        """Startet Drag & Drop für Objekt an Position"""
+        object_info = self.get_object_at_position(world_pos)
+        if object_info:
+            obj_type, obj_index, obj_data = object_info
+            self.selected_object = object_info
+            self.dragging = True
+            # Berechne Offset zwischen Mausposition und Objektmitte
+            obj_center_x = obj_data['x'] + obj_data['image'].get_width() // 2
+            obj_center_y = obj_data['y'] + obj_data['image'].get_height() // 2
+            self.drag_offset = (world_pos[0] - obj_center_x, world_pos[1] - obj_center_y)
+            return True
+        return False
+    
+    def update_drag(self, world_pos):
+        """Aktualisiert Position des gezogenen Objekts"""
+        if self.dragging and self.selected_object:
+            obj_type, obj_index, obj_data = self.selected_object
+            if obj_type == 'dynamic':
+                # Neue Position mit Offset
+                new_center_x = world_pos[0] - self.drag_offset[0]
+                new_center_y = world_pos[1] - self.drag_offset[1]
+                
+                # Konvertiere zu Objekt-Ursprung (oben links)
+                new_x = new_center_x - obj_data['image'].get_width() // 2
+                new_y = new_center_y - obj_data['image'].get_height() // 2
+                
+                # Aktualisiere Objektposition
+                self.dynamic_objects[obj_index]['x'] = new_x
+                self.dynamic_objects[obj_index]['y'] = new_y
+    
+    def end_drag(self):
+        """Beendet Drag & Drop"""
+        self.dragging = False
+        self.selected_object = None
+        self.drag_offset = (0, 0)
+    
+    def delete_selected_object(self):
+        """Löscht das aktuell ausgewählte Objekt"""
+        if self.selected_object:
+            obj_type, obj_index, obj_data = self.selected_object
+            if obj_type == 'dynamic':
+                del self.dynamic_objects[obj_index]
+                print(f"🗑️ Objekt {obj_data.get('image_name', 'unknown')} gelöscht")
+            self.selected_object = None
+            return True
+        return False
             
     def _load_decoration_sprites(self):
         """Load decorative sprites (pilz, blume, stone, gold)"""

@@ -6,15 +6,15 @@ class FarmUI:
     """UI-System für Farming mit Maus-Steuerung"""
     
     def __init__(self):
-        # UI-Dimensionen
-        self.ui_height = 120
+        # UI-Dimensionen (verkleinert)
+        self.ui_height = 80  # Verkleinert von 120
         self.ui_y = SCREEN_HEIGHT - self.ui_height
         self.ui_rect = pygame.Rect(0, self.ui_y, SCREEN_WIDTH, self.ui_height)
         
-        # Fonts
+        # Fonts (verkleinert)
         pygame.font.init()
-        self.font = pygame.font.Font(None, 24)
-        self.small_font = pygame.font.Font(None, 18)
+        self.font = pygame.font.Font(None, 20)  # Verkleinert von 24
+        self.small_font = pygame.font.Font(None, 16)  # Verkleinert von 18
         
         # Farm-Modi
         self.mode = "normal"  # "normal", "build_farm", "plant_crops"
@@ -38,36 +38,36 @@ class FarmUI:
         self.farmland_tile = self._load_farmland_tile()
         
     def _create_buttons(self):
-        """Erstelle UI-Buttons"""
-        button_width = 120
-        button_height = 35
-        margin = 10
+        """Erstelle UI-Buttons (verkleinert)"""
+        button_width = 90  # Verkleinert von 120
+        button_height = 25  # Verkleinert von 35
+        margin = 8  # Verkleinert von 10
         start_x = (SCREEN_WIDTH - (button_width * 3 + margin * 2)) // 2
         
         # Farm bauen Button
         self.buttons['build_farm'] = {
-            'rect': pygame.Rect(start_x, self.ui_y + 20, button_width, button_height),
+            'rect': pygame.Rect(start_x, self.ui_y + 15, button_width, button_height),  # y von 20 auf 15
             'text': 'Farm bauen',
             'active': False
         }
         
         # Pflanzen Button
         self.buttons['plant_crops'] = {
-            'rect': pygame.Rect(start_x + button_width + margin, self.ui_y + 20, button_width, button_height),
-            'text': 'Karotten pflanzen',
+            'rect': pygame.Rect(start_x + button_width + margin, self.ui_y + 15, button_width, button_height),  # y von 20 auf 15
+            'text': 'Pflanzen',  # Verkürzt von 'Karotten pflanzen'
             'active': False
         }
         
         # Normal Modus Button
         self.buttons['normal'] = {
-            'rect': pygame.Rect(start_x + (button_width + margin) * 2, self.ui_y + 20, button_width, button_height),
+            'rect': pygame.Rect(start_x + (button_width + margin) * 2, self.ui_y + 15, button_width, button_height),  # y von 20 auf 15
             'text': 'Normal',
             'active': True
         }
         
         # Ernten Button (unter plant_crops)
         self.buttons['harvest'] = {
-            'rect': pygame.Rect(start_x + button_width + margin, self.ui_y + 65, button_width, button_height),
+            'rect': pygame.Rect(start_x + button_width + margin, self.ui_y + 45, button_width, button_height),  # y von 65 auf 45
             'text': 'Ernten',
             'active': False
         }

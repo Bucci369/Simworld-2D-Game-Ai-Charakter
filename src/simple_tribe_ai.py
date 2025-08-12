@@ -82,6 +82,10 @@ class SimpleNPC:
         self.skill_level = random.uniform(0.8, 1.2)  # Individuelle Fähigkeiten
         self.experience = 0        # Erfahrungspunkte
         
+        # Speech Bubble Spam Reduktion
+        self._last_speech_time = 0.0  # Zeitpunkt der letzten Nachricht
+        self._speech_cooldown = 5.0   # Mindestens 5 Sekunden zwischen Nachrichten
+        
         # 🔨 NEUE FEATURES: Bauanimation
         self.is_building = False   # Aktuell am Bauen
         self.build_animation_timer = 0.0  # Timer für Bauanimation
@@ -103,6 +107,42 @@ class SimpleNPC:
         
         # Erstelle rect für Kollisionserkennung - passend zur Sprite-Größe
         self.rect = pygame.Rect(self.position.x, self.position.y, 32, 32)  # 32x32 passend zur Sprite-Größe
+
+    def _can_show_speech_bubble(self) -> bool:
+        """Prüft ob eine neue Speech Bubble angezeigt werden darf (Spam-Schutz)"""
+        current_time = time.time()
+        if current_time - self._last_speech_time < self._speech_cooldown:
+            return False
+        return True
+    
+    def _set_speech_bubble(self, text: str, duration: float = 3.0, priority: bool = False):
+        """Setzt eine Speech Bubble mit Spam-Schutz"""
+        if priority or self._can_show_speech_bubble():
+            self.speech_bubble = SpeechBubble(text, duration)
+            self._last_speech_time = time.time()
+
+    def _random_tree_anecdote(self):
+        """Zufällige lustige Anekdoten über Bäume und Baumstümpfe"""
+        anecdotes = [
+            "Ich hasse diese Baumstümpfe!",
+            "Ufff noch nen Baum, ernsthaft?",
+            "Wer hat hier alle Bäume gepflanzt?",
+            "Diese Baumstümpfe nerven total!",
+            "Kann mal jemand die Bäume wegräumen?",
+            "Schon wieder über nen Stumpf gestolpert...",
+            "Noch ein Baum im Weg... super!",
+            "Baumstümpfe sollten illegal sein!",
+            "Holz ist ja schön, aber muss es Sooo viel sein?",
+            "Langsam bekomme ich Allergie gegen Bäume...",
+            "Die Bäume haben sich wohl verschworen!",
+            "Ich schwöre, diese Bäume beobachten mich!",
+            ""
+        ]
+        
+        # Nur anzeigen wenn noch keine Speech Bubble aktiv ist
+        if not self.speech_bubble or self.speech_bubble.is_expired():
+            random_anecdote = random.choice(anecdotes)
+            self._set_speech_bubble(random_anecdote, 4.0)  # 4 Sekunden anzeigen
 
     def update(self, dt: float, world_state: Dict):
         if self.is_leader:
@@ -221,8 +261,12 @@ class SimpleNPC:
         
         # Zeichne Sprechblase falls vorhanden
         try:
-            if self.speech_bubble and not self.speech_bubble.is_expired():
-                self.speech_bubble.draw(surface, camera, self.position)
+            if self.speech_bubble:
+                if not self.speech_bubble.is_expired():
+                    self.speech_bubble.draw(surface, camera, self.position)
+                else:
+                    # Bereinige abgelaufene Speech Bubbles (Memory Leak Fix)
+                    self.speech_bubble = None
         except Exception as e:
             logger.error(f"❌ Sprechblase-Zeichenfehler für {self.npc_id}: {str(e)}")
 
@@ -250,7 +294,7 @@ class SimpleNPC:
                     storage.remove_resources('wood', 5)
                     self.carrying_wood += 5
                     logger.info(f"👑 {self.npc_id} nimmt 5 Holz aus dem Lager für eigenes Haus!")
-                    self.speech_bubble = SpeechBubble("Holz aus dem Lager geholt!", 3.0)
+                    self._set_speech_bubble("Holz aus dem Lager geholt!", 3.0)
                 else:
                     # Kein Holz im Lager - beauftrage Arbeiter
                     npcs = world_state['tribe_system'].tribes[self.tribe_color]
@@ -259,13 +303,13 @@ class SimpleNPC:
                     if idle_workers:
                         worker = idle_workers[0]
                         worker.state = NPCState.COLLECTING_WOOD
-                        worker.speech_bubble = SpeechBubble("Hole Holz für den Anführer!", 3.0)
+                        worker._set_speech_bubble("Hole Holz für den Anführer!", 3.0)
                         logger.info(f"👑 {self.npc_id} beauftragt {worker.npc_id} Holz zu sammeln")
                     
                     # Anführer bleibt am Ort und wartet
                     self.velocity = pygame.Vector2(0, 0)
                     if random.random() < 0.1:
-                        self.speech_bubble = SpeechBubble("Warte auf Holz...", 2.0)
+                        self._set_speech_bubble("Warte auf Holz...", 2.0)
                 return
             elif not my_house and self.carrying_wood >= 5:
                 # Ich habe genug Holz - baue mein Haus
@@ -621,7 +665,9 @@ class SimpleNPC:
                     if self.target_tree.take_damage(25):  # Baum wurde gefällt (nach 4 Schlägen)
                         wood_amount = random.randint(4, 5)  # 4-5 Holz pro Baum
                         self.carrying_wood += wood_amount
-                        self.speech_bubble = SpeechBubble(f"Habe {wood_amount} Holz gesammelt!", 2.0)
+                        # Nur bei größeren Mengen sprechen
+                        if wood_amount >= 3:
+                            self._set_speech_bubble(f"Habe {wood_amount} Holz gesammelt!", 2.0)
                         logger.info(f"🪓 {self.npc_id} hat {wood_amount} Holz gesammelt!")
                         self.target_tree = None
                         
@@ -644,11 +690,15 @@ class SimpleNPC:
                     else:
                         # Baum noch nicht gefällt, zeige Fortschritt
                         hp_percent = int((self.target_tree.current_hp / self.target_tree.max_hp) * 100)
-                        self.speech_bubble = SpeechBubble(f"Fälle Baum... {hp_percent}% HP", 1.8)
+                        # Nur alle 3 Schläge sprechen statt bei jedem
+                        if random.random() < 0.3:
+                            self._set_speech_bubble(f"Fälle Baum... {hp_percent}% HP", 1.8)
                 else:
                     # Warten auf nächsten Schlag
                     wait_time = int(self.chop_cooldown) + 1
-                    self.speech_bubble = SpeechBubble(f"Bereite nächsten Schlag vor... {wait_time}s", 0.5)
+                    # Nur gelegentlich sprechen beim Warten
+                    if random.random() < 0.1:
+                        self._set_speech_bubble(f"Bereite nächsten Schlag vor... {wait_time}s", 0.5)
 
     def _return_to_storage(self, world_state: Dict):
         """Bringe Holz zum Lager"""
@@ -665,8 +715,9 @@ class SimpleNPC:
             if dist > 40:  # Gehe zum Lager
                 direction = (storage_pos - self.position).normalize()
                 self.velocity = direction * self.max_speed
-                if not self.speech_bubble or self.speech_bubble.is_expired():
-                    self.speech_bubble = SpeechBubble(f"Bringe {self.carrying_wood} Holz zum Lager", 2.0)
+                # Weniger häufige Nachrichten beim Transport
+                if random.random() < 0.05 and (not self.speech_bubble or self.speech_bubble.is_expired()):  # Reduziert von 0.2 auf 0.05
+                    self._set_speech_bubble(f"Bringe {self.carrying_wood} Holz zum Lager", 2.0)
                     logger.info(f"🚶 {self.npc_id} geht zum Lager (Distanz: {int(dist)})")
             else:  # Lagere Holz ein
                 self.velocity = pygame.Vector2(0, 0)  # Stoppe Bewegung
@@ -674,7 +725,7 @@ class SimpleNPC:
                 # Prüfe aktuelle Holzmenge im Lager
                 current_wood = storage.get_resource_amount('wood')
                 storage.add_resources('wood', self.carrying_wood)
-                self.speech_bubble = SpeechBubble(f"{self.carrying_wood} Holz eingelagert!", 2.0)
+                self._set_speech_bubble(f"{self.carrying_wood} Holz eingelagert!", 2.0)
                 logger.info(f"📦 {self.npc_id} hat {self.carrying_wood} Holz eingelagert!")
                 
                 # Aktualisiere Zustand
@@ -904,7 +955,7 @@ class SimpleNPC:
                     self.velocity = pygame.Vector2(0, 0)
                 
                 # ERWEITERTE TEAM-GESPRÄCHE für große Gruppen
-                if random.random() < 0.08:  # Häufigere Gespräche für mehr Teamgeist
+                if random.random() < 0.02:  # Reduziert von 0.08 auf 0.02 (weniger Gespräche)
                     # Vereinfachte Gespräche für große Gruppen
                     conversation_topics = [
                         "Schöne Häuser haben wir gebaut!",
