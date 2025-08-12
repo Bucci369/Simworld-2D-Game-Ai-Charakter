@@ -26,13 +26,13 @@ WATER_TILE_PATH = os.path.join(ASSETS_DIR, 'Tiles', 'Water_Middle.png')
 PATH_TILE_PATH = os.path.join(ASSETS_DIR, 'Tiles', 'Path_Middle.png')
 
 # Simple World Konfiguration (anpassen um Welt größer/kleiner zu machen)
-SIMPLE_WORLD_WIDTH_TILES = 50    # Mittlere Welt: 50x50 Tiles
-SIMPLE_WORLD_HEIGHT_TILES = 50   # Mittlere Welt: 50x50 Tiles
-SIMPLE_WORLD_TREE_DENSITY = 0.05 # Mehr Bäume für 50x50 Welt (5%)
+SIMPLE_WORLD_WIDTH_TILES = 10    # Winzige Welt: 10x10 Tiles
+SIMPLE_WORLD_HEIGHT_TILES = 10   # Winzige Welt: 10x10 Tiles
+SIMPLE_WORLD_TREE_DENSITY = 0.1  # Mehr Bäume für kleine Welt (10%)
 SIMPLE_WORLD_SEED = 42           # Für reproduzierbare Platzierung; None für Zufall
-SIMPLE_WORLD_FARMLAND_PATCHES = 2  # 2 Farmland-Patches
-SIMPLE_WORLD_FARMLAND_RADIUS_RANGE = (3, 5)  # Mittlere Farmland-Patches
-SIMPLE_WORLD_LAKE_RADII = (6, 4)  # Mittelgroßer See
+SIMPLE_WORLD_FARMLAND_PATCHES = 1  # Nur 1 Farmland-Patch
+SIMPLE_WORLD_FARMLAND_RADIUS_RANGE = (1, 2)  # Sehr kleine Farmland-Patches
+SIMPLE_WORLD_LAKE_RADII = (2, 1)  # Winziger See
 SIMPLE_WORLD_LAKE_CENTER_REL = (0.65, 0.35)  # versetzt, damit Pfad nicht durch muss
 HOUSE_IMAGE_PATH = os.path.join(ASSETS_DIR, 'Outdoor decoration', 'House.png')
 

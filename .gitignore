@@ -10,25 +10,11 @@ venv/
 ENV/
 env.bak/
 venv.bak/
-panda3d_env/
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# macOS
-.DS_Store
-.AppleDouble
-.LSOverride
-._*
 
 # Game specific
 *.log
 *.tmp
 saved_world.json
-debug_sprites/
 
 # Large 3D assets (not needed for gameplay)
 *.glb
