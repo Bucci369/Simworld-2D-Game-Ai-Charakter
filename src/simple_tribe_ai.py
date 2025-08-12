@@ -662,6 +662,10 @@ class SimpleNPC:
                 if self.chop_cooldown <= 0:
                     self.chop_cooldown = self.max_chop_cooldown  # Reset Cooldown
                     
+                    # 🗣️ Zufällige Baum-Anekdoten beim Schlagen (10% Chance)
+                    if random.random() < 0.1:
+                        self._random_tree_anecdote()
+                    
                     if self.target_tree.take_damage(25):  # Baum wurde gefällt (nach 4 Schlägen)
                         wood_amount = random.randint(4, 5)  # 4-5 Holz pro Baum
                         self.carrying_wood += wood_amount
