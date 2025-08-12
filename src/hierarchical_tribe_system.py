@@ -54,11 +54,11 @@ class HierarchicalTribeSystem:
         # Create the central Volk object
         volk = Volk(volk_id, color, starting_position)
         
-        # Create initial territory
+        # Create initial territory (larger for city building)
         main_territory = Territory(
             name=f"{color}_homeland", 
             center=starting_position, 
-            radius=150.0
+            radius=200.0  # Larger radius for city expansion
         )
         volk.add_territory(main_territory)
         
@@ -71,13 +71,13 @@ class HierarchicalTribeSystem:
         volk.register_agent(kriegsherr)
         volk.register_agent(wirtschaftsminister)
         
-        # Create minions (workers)
+        # Create minions (workers) 
         self._create_minions_for_volk(volk, starting_position, num_workers)
         
         # Store the Volk
         self.volks[color] = volk
         
-        logger.info(f"🏛️ Created hierarchical tribe {color} with {num_workers} minions and 3 agents")
+        logger.info(f"🏛️ Created hierarchical tribe {color} with {num_workers} minions and 3 agents for city building")
         
         return volk
     
@@ -93,6 +93,12 @@ class HierarchicalTribeSystem:
             
             minion_id = f"{volk.volk_id}_minion_{i}"
             minion = Minion(minion_id, (pos_x, pos_y), self.sprite_manager)
+            
+            # Connect to game systems for real building/gathering
+            if hasattr(self, 'game_house_system'):
+                minion.game_house_system = self.game_house_system
+            if hasattr(self, 'game_world_resources'):
+                minion.game_world_resources = self.game_world_resources
             
             volk.add_minion(minion)
     
@@ -190,6 +196,33 @@ class HierarchicalTribeSystem:
             stats['volk_details'][color] = volk.get_status()
         
         return stats
+    
+    def create_growth_oriented_tribe_near_player(self, color: str, player_position: tuple, distance: float = 300.0, num_workers: int = 10):
+        """
+        Create a growth-oriented tribe near the player for city building demonstration
+        """
+        # Calculate position near player but not too close
+        angle = random.uniform(0, 2 * math.pi)
+        spawn_x = player_position[0] + math.cos(angle) * distance
+        spawn_y = player_position[1] + math.sin(angle) * distance
+        spawn_position = (spawn_x, spawn_y)
+        
+        # Create the tribe
+        volk = self.create_tribe(color, spawn_position, num_workers)
+        
+        # Set up growth-oriented parameters
+        if 'wirtschaftsminister' in volk.agents:
+            wirtschaftsminister = volk.agents['wirtschaftsminister']
+            # Start with more resources for active city building
+            volk.resources['wood'] = 50
+            volk.resources['stone'] = 30
+            # Set aggressive construction schedule
+            wirtschaftsminister.decision_interval = 2.0  # Even faster decisions
+            
+        logger.info(f"🏗️ Created growth-oriented tribe {color} near player at {spawn_position}")
+        logger.info(f"🏗️ Tribe will build: {num_workers + 1} houses, marketplace, well, farm, animal pen")
+        
+        return volk
     
     def simulate_threat(self, volk_color: str, threat_level: float = 0.8):
         """Simulate a threat for testing the military system"""

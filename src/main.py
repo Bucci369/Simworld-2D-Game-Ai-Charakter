@@ -572,9 +572,28 @@ class Game:
             # Initialisiere Stadtplaner für den Stamm
             self.house_system.create_city_planner("red", storage_pos)
             
-            # Erstelle einen skalierten Stamm mit 1 Anführer und 10 Arbeitern
-            self.tribe_system.create_tribe("red", tribe_spawn_pos, num_workers=10)
-            print("👥 Stamm erstellt: 1 Anführer + 10 Arbeiter (11 Charaktere total)")
+            # HIERARCHISCHES SYSTEM RICHTIG VERBINDEN
+            if hasattr(self.tribe_system, 'create_growth_oriented_tribe_near_player'):
+                # Verbinde mit echten Game-Systemen
+                self.tribe_system.game_house_system = self.house_system
+                # WICHTIG: Verbinde auch die Welt-Ressourcen für echtes Sammeln/Bauen
+                self.tribe_system.game_world_resources = {
+                    'trees': self.tree_system,
+                    'mining': getattr(self, 'mining_system', None),
+                    'storage': self.storage_system
+                }
+                
+                # Verwende hierarchisches System
+                player_pos = (self.player.rect.centerx, self.player.rect.centery)
+                volk = self.tribe_system.create_growth_oriented_tribe_near_player("red", player_pos, distance=150.0, num_workers=10)
+                
+                # WICHTIG: Aktiviere kontinuierliche Updates
+                self.hierarchical_active = True
+                print("🏛️ Hierarchisches System AKTIV - NPCs bauen Stadt!")
+            else:
+                # Fallback
+                self.tribe_system.create_tribe("red", tribe_spawn_pos, num_workers=10)
+                print("👥 Fallback System aktiv")
         
         # Versuche gespeicherte Welt zu laden
         self.auto_load_world()
@@ -692,6 +711,24 @@ class Game:
                     # Ctrl+T = Schnell vorspulen (6 Stunden) - um Sonnenposition zu sehen
                     self.game_time.advance_time(hours=6)
                     print(f"Schnell vorspulen: {self.game_time.get_time_string()}")
+                elif event.key == pygame.K_t and pygame.key.get_pressed()[pygame.K_LALT]:
+                    # Alt+T = Teleportiere AI Members zum Player
+                    if self.tribe_system:
+                        player_x = self.player.x
+                        player_y = self.player.y
+                        
+                        # Unterschiedliche Teleport-Methoden für verschiedene AI Systeme
+                        if hasattr(self.tribe_system, 'teleport_nearby_to_player'):
+                            # Hybrid/Scalable AI System - teleportiere nahegelegene Charaktere
+                            self.tribe_system.teleport_nearby_to_player(player_x, player_y, radius=500)
+                            if hasattr(self.tribe_system, 'leaders'):
+                                print(f"🚁 AI Charaktere zu dir teleportiert! ({len(self.tribe_system.leaders)} Leaders + {len(self.tribe_system.workers)} Workers)")
+                            else:
+                                print("🚁 Nahegelegene AI Charaktere zu dir teleportiert!")
+                        else:
+                            # Normal AI System
+                            self.tribe_system.teleport_members_to_player(player_x, player_y)
+                            print("🚁 AI Tribe Members zu dir teleportiert!")
                 elif event.key == pygame.K_t:
                     # T = Zeit auf normal zurücksetzen
                     self.game_time.set_time_speed(1.0)
@@ -772,7 +809,7 @@ class Game:
                             print("🧠 KI-Debug-Modus umgeschaltet!")
                 elif event.key == pygame.K_k:
                     # K = KI-Statistiken anzeigen
-                    if self.use_ai_tribes:
+                    if self.use_ai_tribess:
                         if hasattr(self.tribe_system, 'get_stats'):
                             # Hybrid/Scalable AI System
                             stats = self.tribe_system.get_stats()
@@ -826,24 +863,6 @@ class Game:
                         print("🚨 SIMULIERE BEDROHUNG!")
                         self.tribe_system.simulate_threat("red", threat_level=0.9)
                         print("⚔️ Kriegsherr sollte Kampfmodus aktivieren!")
-                elif event.key == pygame.K_t:
-                    # T = Teleportiere AI Members zum Player
-                    if self.tribe_system:
-                        player_x = self.player.x
-                        player_y = self.player.y
-                        
-                        # Unterschiedliche Teleport-Methoden für verschiedene AI Systeme
-                        if hasattr(self.tribe_system, 'teleport_nearby_to_player'):
-                            # Hybrid/Scalable AI System - teleportiere nahegelegene Charaktere
-                            self.tribe_system.teleport_nearby_to_player(player_x, player_y, radius=500)
-                            if hasattr(self.tribe_system, 'leaders'):
-                                print(f"🚁 AI Charaktere zu dir teleportiert! ({len(self.tribe_system.leaders)} Leaders + {len(self.tribe_system.workers)} Workers)")
-                            else:
-                                print("🚁 Nahegelegene AI Charaktere zu dir teleportiert!")
-                        else:
-                            # Normal AI System
-                            self.tribe_system.teleport_members_to_player(player_x, player_y)
-                            print("🚁 AI Tribe Members zu dir teleportiert! (6 Charaktere)")
                 elif event.key == pygame.K_c and not USE_SIMPLE_WORLD:
                     # C = Chat öffnen/schließen (nur wenn nicht Simple World für Clear)
                     self.chat_system.toggle_chat()

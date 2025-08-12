@@ -16,10 +16,10 @@ import pygame
 import logging
 import random
 import time
+import math
 from enum import Enum, IntEnum
 from typing import Dict, List, Optional, Set, Any
 from dataclasses import dataclass, field
-import math
 
 logger = logging.getLogger(__name__)
 
@@ -535,38 +535,193 @@ class Minion:
             self.velocity = direction * self.max_speed
     
     def _execute_gather_command(self, dt: float, world_state: Dict):
-        """Execute resource gathering"""
-        # This is a simplified implementation
-        # In practice, you'd interact with the world's resource system
+        """Execute resource gathering with movement to gathering areas"""
+        resource_type = self.current_command.parameters.get('resource_type', 'wood')
         
-        if random.random() < 0.02:  # 2% chance per frame to gather
-            resource_type = self.current_command.parameters.get('resource_type', 'wood')
+        # First, check if we need to move to a gathering area
+        if not hasattr(self.current_command, 'gathering_position'):
+            # Generate a gathering position based on resource type
+            if resource_type == 'wood':
+                # Move to forest area (smaller distance to stay on map)
+                angle = random.uniform(0, 2 * math.pi)
+                distance = random.uniform(20, 60)  # Reduced distance
+                gather_x = self.position.x + math.cos(angle) * distance
+                gather_y = self.position.y + math.sin(angle) * distance
+            elif resource_type == 'stone':
+                # Move to rocky area
+                angle = random.uniform(0, 2 * math.pi)
+                distance = random.uniform(15, 50)  # Reduced distance
+                gather_x = self.position.x + math.cos(angle) * distance
+                gather_y = self.position.y + math.sin(angle) * distance
+            else:
+                # Default gathering area
+                gather_x = self.position.x + random.uniform(-40, 40)  # Reduced range
+                gather_y = self.position.y + random.uniform(-40, 40)
+            
+            # Apply boundaries to gathering position
+            gather_x = max(200, min(gather_x, 2800))
+            gather_y = max(200, min(gather_y, 2800))
+            
+            self.current_command.gathering_position = (gather_x, gather_y)
+            self._start_movement_to((gather_x, gather_y))
+            logger.debug(f"⛏️ {self.minion_id} moving to gather {resource_type} at {(gather_x, gather_y)}")
+            print(f"🌲 {self.minion_id}: Gehe {resource_type} sammeln")
+            return
+        
+        # Check if we've reached the gathering position
+        gather_pos = pygame.Vector2(self.current_command.gathering_position)
+        distance_to_gather = self.position.distance_to(gather_pos)
+        
+        if distance_to_gather > 15.0:
+            # Still moving to gathering position
+            self._start_movement_to(self.current_command.gathering_position)
+            return
+        
+        # We're at the gathering position, start gathering
+        if random.random() < 0.05:  # 5% chance per frame to gather (faster)
             amount = self.current_command.parameters.get('amount', 1)
+            
+            # Try to gather from real world resources
+            gathered_amount = 0
+            if hasattr(self, 'game_world_resources') and self.game_world_resources:
+                try:
+                    if resource_type == 'wood' and 'trees' in self.game_world_resources:
+                        # Try to find and collect wood drops near gathering position
+                        tree_system = self.game_world_resources['trees']
+                        gather_pos = self.current_command.gathering_position
+                        
+                        # First, try to collect existing wood drops
+                        for wood_drop in tree_system.wood_drops:
+                            if wood_drop.collected:
+                                continue
+                            drop_distance = ((wood_drop.x - gather_pos[0])**2 + (wood_drop.y - gather_pos[1])**2)**0.5
+                            if drop_distance < 80:
+                                harvested = min(amount, wood_drop.amount)
+                                wood_drop.amount -= harvested
+                                if wood_drop.amount <= 0:
+                                    wood_drop.collected = True
+                                    tree_system.wood_drops.remove(wood_drop)
+                                gathered_amount = harvested
+                                logger.info(f"🌲 {self.minion_id} collected {harvested} wood from drop")
+                                break
+                    
+                    elif resource_type == 'stone' and 'mining' in self.game_world_resources:
+                        # Try to collect stone from resource drops
+                        mining_system = self.game_world_resources['mining']
+                        gather_pos = self.current_command.gathering_position
+                        
+                        # Look for stone resource drops
+                        for resource_drop in mining_system.resource_drops:
+                            if resource_drop.collected or resource_drop.resource_type != 'stone':
+                                continue
+                            drop_distance = ((resource_drop.x - gather_pos[0])**2 + (resource_drop.y - gather_pos[1])**2)**0.5
+                            if drop_distance < 80:
+                                harvested = min(amount, resource_drop.amount)
+                                resource_drop.amount -= harvested
+                                if resource_drop.amount <= 0:
+                                    resource_drop.collected = True
+                                    mining_system.resource_drops.remove(resource_drop)
+                                gathered_amount = harvested
+                                logger.info(f"⛏️ {self.minion_id} collected {harvested} stone from drop")
+                                break
+                    
+                    if gathered_amount == 0:
+                        # Fallback: simulate gathering if no real resources found
+                        gathered_amount = amount
+                        logger.debug(f"📦 {self.minion_id} simulated gathering {amount} {resource_type}")
+                        
+                except Exception as e:
+                    logger.warning(f"⚠️ Error in real resource gathering: {e}, using fallback")
+                    gathered_amount = amount
+            else:
+                # Fallback: simulate gathering
+                gathered_amount = amount
             
             # Add to inventory
             if resource_type not in self.inventory:
                 self.inventory[resource_type] = 0
-            self.inventory[resource_type] += amount
+            self.inventory[resource_type] += gathered_amount
             
             # Update Volk resources
             if self.volk:
-                self.volk.update_resource(resource_type, amount)
+                self.volk.update_resource(resource_type, gathered_amount)
             
-            logger.debug(f"⛏️ Minion {self.minion_id} gathered {amount} {resource_type}")
+            logger.debug(f"⛏️ Minion {self.minion_id} gathered {gathered_amount} {resource_type} (total: {self.inventory[resource_type]})")
             
-            # Complete command after gathering
+            # Complete command after gathering enough
             if self.inventory.get(resource_type, 0) >= self.carrying_capacity:
                 self._complete_current_command()
     
     def _execute_build_command(self, dt: float, world_state: Dict):
-        """Execute building construction"""
-        # Simplified building - just takes time
-        build_time = self.current_command.parameters.get('build_time', 5.0)
+        """Execute building construction with movement to construction site"""
+        structure_type = self.current_command.parameters.get('structure_type', 'house')
+        
+        # First, check if we need to move to a construction site
+        if not hasattr(self.current_command, 'construction_position'):
+            # Generate a construction position based on structure type
+            if structure_type == 'house':
+                # Houses are built in organized pattern around center (smaller distances)
+                angle = random.uniform(0, 2 * math.pi)
+                distance = random.uniform(30, 80)  # Reduced distance
+                build_x = self.position.x + math.cos(angle) * distance
+                build_y = self.position.y + math.sin(angle) * distance
+            elif structure_type == 'marketplace':
+                # Marketplace in central area
+                build_x = self.position.x + random.uniform(-25, 25)  # Reduced range
+                build_y = self.position.y + random.uniform(-25, 25)
+            elif structure_type in ['well', 'farm', 'animal_pen']:
+                # Infrastructure spread around center (smaller distances)
+                angle = random.uniform(0, 2 * math.pi)
+                distance = random.uniform(40, 90)  # Reduced distance
+                build_x = self.position.x + math.cos(angle) * distance
+                build_y = self.position.y + math.sin(angle) * distance
+            else:
+                # Default construction area
+                build_x = self.position.x + random.uniform(-50, 50)  # Reduced range
+                build_y = self.position.y + random.uniform(-50, 50)
+            
+            # Apply boundaries to construction position
+            build_x = max(200, min(build_x, 2800))
+            build_y = max(200, min(build_y, 2800))
+            
+            self.current_command.construction_position = (build_x, build_y)
+            self._start_movement_to((build_x, build_y))
+            logger.info(f"🏗️ {self.minion_id} moving to build {structure_type} at {(build_x, build_y)}")
+            print(f"👷 {self.minion_id}: Gehe bauen ({structure_type})")
+            return
+        
+        # Check if we've reached the construction site
+        build_pos = pygame.Vector2(self.current_command.construction_position)
+        distance_to_build = self.position.distance_to(build_pos)
+        
+        if distance_to_build > 10.0:
+            # Still moving to construction site
+            self._start_movement_to(self.current_command.construction_position)
+            return
+        
+        # We're at the construction site, start building
+        build_time = self.current_command.parameters.get('build_time', 8.0)
         elapsed = time.time() - self.current_command.issued_time
         
         if elapsed >= build_time:
-            logger.info(f"🏗️ Minion {self.minion_id} completed construction")
+            # Actually build the house in the game's house system!
+            if hasattr(self, 'game_house_system') and self.game_house_system and structure_type == 'house':
+                try:
+                    house = self.game_house_system.build_house_for_npc(self.minion_id, 'red')
+                    if house:
+                        # Add resources to the house
+                        house.add_resources(wood=5, stone=0)
+                        logger.info(f"🏠 REAL house built for {self.minion_id} at {house.position}")
+                    else:
+                        logger.warning(f"❌ Failed to build real house for {self.minion_id}")
+                except Exception as e:
+                    logger.error(f"❌ Error building house: {e}")
+            
+            logger.info(f"🏗️ Minion {self.minion_id} completed construction of {structure_type}")
             self._complete_current_command()
+        else:
+            # Stop moving while building
+            self.velocity = pygame.Vector2(0, 0)
     
     def _execute_patrol_command(self, dt: float):
         """Execute patrol behavior"""
@@ -598,8 +753,24 @@ class Minion:
             if self.velocity.length() > self.max_speed:
                 self.velocity.scale_to_length(self.max_speed)
             
+            # Calculate new position
+            new_position = self.position + self.velocity * dt
+            
+            # Apply world boundaries (keep NPCs on map)
+            # Assuming world size around 3000x3000 pixels
+            map_bounds = {
+                'min_x': 100,
+                'max_x': 3000,
+                'min_y': 100,
+                'max_y': 3000
+            }
+            
+            # Clamp position to map boundaries
+            new_position.x = max(map_bounds['min_x'], min(new_position.x, map_bounds['max_x']))
+            new_position.y = max(map_bounds['min_y'], min(new_position.y, map_bounds['max_y']))
+            
             # Update position
-            self.position += self.velocity * dt
+            self.position = new_position
     
     def _check_command_completion(self):
         """Check if current command is completed and move to next"""
@@ -968,11 +1139,14 @@ class WirtschaftsministerAgent(AgentBase):
         if self.military_override:
             return
         
+        # 🏗️ GROWTH-ORIENTED CITY PLANNING
+        self._update_city_planning()
+        
         # Assign workers to resource gathering
         self._assign_resource_workers(world_state)
         
-        # Manage construction projects
-        self._manage_construction_projects(world_state)
+        # Manage construction projects (now growth-oriented)
+        self._manage_growth_construction_projects(world_state)
         
         # Optimize resource allocation
         self._optimize_resource_allocation()
@@ -1057,35 +1231,141 @@ class WirtschaftsministerAgent(AgentBase):
         
         return needs
     
-    def _manage_construction_projects(self, world_state: Dict):
-        """Manage ongoing construction projects"""
-        # Simplified construction management
-        if len(self.construction_projects) < 2 and self.volk.resources.get('wood', 0) > 20:
-            # Start new construction project
-            available_builders = self.find_available_minions(CommandPriority.ECONOMIC)
+    def _update_city_planning(self):
+        """Update city planning based on growth needs"""
+        # Calculate population (including leader)
+        total_population = len(self.volk.minions) + 1  # +1 for leader
+        self.city_plan['houses_needed'] = total_population
+        
+        # Count existing houses (from house system if available)
+        # This is a simplified estimate - in a full game this would query the actual house system
+        self.city_plan['houses_built'] = len([p for p in self.construction_projects if p.get('type') == 'house' and p.get('completed', False)])
+        
+        # Update construction queue based on growth phase
+        if self.city_plan['growth_phase'] == 'housing':
+            houses_missing = self.city_plan['houses_needed'] - self.city_plan['houses_built']
+            if houses_missing > 0:
+                # Add houses to construction queue
+                for _ in range(min(houses_missing, 3)):  # Max 3 concurrent construction projects
+                    if 'house' not in [item['type'] for item in self.city_plan['construction_queue']]:
+                        self.city_plan['construction_queue'].append({
+                            'type': 'house',
+                            'priority': 'high',
+                            'resources_needed': {'wood': 5, 'stone': 0}
+                        })
+            else:
+                # Move to infrastructure phase
+                self.city_plan['growth_phase'] = 'infrastructure'
+                logger.info(f"🏗️ {self.volk.volk_id}: All houses built, moving to infrastructure phase")
+        
+        elif self.city_plan['growth_phase'] == 'infrastructure':
+            # Build central infrastructure
+            infrastructure_queue = []
+            if not self.city_plan['infrastructure_built']['marketplace']:
+                infrastructure_queue.append({
+                    'type': 'marketplace',
+                    'priority': 'high',
+                    'resources_needed': {'wood': 10, 'stone': 5}
+                })
+            if not self.city_plan['infrastructure_built']['well']:
+                infrastructure_queue.append({
+                    'type': 'well',
+                    'priority': 'high', 
+                    'resources_needed': {'wood': 5, 'stone': 10}
+                })
+            if not self.city_plan['infrastructure_built']['farm']:
+                infrastructure_queue.append({
+                    'type': 'farm',
+                    'priority': 'medium',
+                    'resources_needed': {'wood': 15, 'stone': 0}
+                })
+            if not self.city_plan['infrastructure_built']['animal_pen']:
+                infrastructure_queue.append({
+                    'type': 'animal_pen',
+                    'priority': 'medium',
+                    'resources_needed': {'wood': 8, 'stone': 2}
+                })
             
-            if available_builders:
-                builder_id = available_builders[0]
-                build_command = Command(
-                    command_type=CommandType.BUILD_STRUCTURE,
-                    priority=CommandPriority.ECONOMIC,
-                    parameters={
-                        'structure_type': 'house',
-                        'build_time': 10.0
-                    }
-                )
+            # Add to construction queue
+            for item in infrastructure_queue:
+                if item not in self.city_plan['construction_queue']:
+                    self.city_plan['construction_queue'].append(item)
+    
+    def _manage_growth_construction_projects(self, world_state: Dict):
+        """Manage construction projects for city growth"""
+        # Process construction queue
+        while (len(self.construction_projects) < 3 and 
+               self.city_plan['construction_queue'] and
+               self.volk.resources.get('wood', 0) > 10):
+            
+            # Get next construction project
+            next_project = self.city_plan['construction_queue'].pop(0)
+            
+            # Check if we have enough resources
+            resources_needed = next_project['resources_needed']
+            has_resources = all(
+                self.volk.resources.get(resource, 0) >= amount 
+                for resource, amount in resources_needed.items()
+            )
+            
+            if not has_resources:
+                # Put project back in queue
+                self.city_plan['construction_queue'].insert(0, next_project)
+                break
+            
+            # Find available builder
+            available_builders = self.find_available_minions(CommandPriority.ECONOMIC)
+            if not available_builders:
+                # Put project back in queue
+                self.city_plan['construction_queue'].insert(0, next_project)
+                break
+            
+            builder_id = available_builders[0]
+            
+            # Create construction command
+            build_command = Command(
+                command_type=CommandType.BUILD_STRUCTURE,
+                priority=CommandPriority.ECONOMIC,
+                parameters={
+                    'structure_type': next_project['type'],
+                    'build_time': 8.0,  # Faster construction for visible progress
+                    'resources': resources_needed
+                }
+            )
+            
+            success = self.issue_command_to_minion(builder_id, build_command)
+            if success:
+                # Consume resources
+                for resource, amount in resources_needed.items():
+                    self.volk.resources[resource] = max(0, self.volk.resources.get(resource, 0) - amount)
                 
-                success = self.issue_command_to_minion(builder_id, build_command)
-                if success:
-                    self.construction_projects.append({
-                        'builder': builder_id,
-                        'type': 'house',
-                        'start_time': time.time()
-                    })
-                    
-                    # Spend resources
-                    self.volk.spend_resources({'wood': 10, 'stone': 5})
-                    logger.info(f"🏗️ Construction project started by {builder_id}")
+                # Add to active projects
+                self.construction_projects.append({
+                    'builder': builder_id,
+                    'type': next_project['type'],
+                    'start_time': time.time(),
+                    'build_time': 8.0,
+                    'completed': False
+                })
+                
+                logger.info(f"🏗️ {self.volk.volk_id}: Started building {next_project['type']} with {builder_id}")
+        
+        # Update existing projects
+        for project in self.construction_projects[:]:
+            if time.time() - project['start_time'] >= project['build_time'] and not project['completed']:
+                project['completed'] = True
+                
+                # Mark infrastructure as built
+                project_type = project['type']
+                if project_type in self.city_plan['infrastructure_built']:
+                    self.city_plan['infrastructure_built'][project_type] = True
+                
+                logger.info(f"🏗️ {self.volk.volk_id}: Completed {project_type}")
+    
+    def _manage_construction_projects(self, world_state: Dict):
+        """Legacy construction method - replaced by growth-oriented version"""
+        # This method is kept for compatibility but calls the new growth-oriented version
+        self._manage_growth_construction_projects(world_state)
     
     def _optimize_resource_allocation(self):
         """Optimize resource allocation based on current situation"""

@@ -1152,31 +1152,32 @@ class SimpleTribeSystem:
         
         self.tribes[color] = [leader] + workers
         
-        # DEAKTIVIERT: Kein KI-Leader mehr
-        # ai_leader = AILeader(f"ai_leader_{color}", color, max_workers=num_workers)
-        # self.ai_leaders[color] = ai_leader
+        # AKTIVIERT: KI-Leader System AN
+        from ai_leader import AILeader
+        ai_leader = AILeader(f"ai_leader_{color}", color, max_workers=num_workers)
+        self.ai_leaders[color] = ai_leader
         
-        logger.info(f"🏰 Neuer Stamm erstellt: {color} mit {num_workers} Arbeitern (KI-Leader deaktiviert)")
+        logger.info(f"🏰 Neuer Stamm erstellt: {color} mit {num_workers} Arbeitern (KI-Leader AKTIVIERT)")
         
     def update(self, dt: float, world_state: Dict):
         """Update alle NPCs in allen Stämmen mit KI-Leader Integration"""
         for tribe_color, npcs in self.tribes.items():
-            # DEAKTIVIERT: KI-Leader System komplett abgeschaltet
-            # if tribe_color in self.ai_leaders:
-            #     ai_leader = self.ai_leaders[tribe_color]
-            #     ai_leader.update(world_state)
-            #     
-            #     # Weise Tasks zu verfügbaren Arbeitern zu
-            #     available_workers = [npc for npc in npcs if not npc.is_leader 
-            #                        and (not npc.assigned_task or npc.assigned_task.completed)]
-            #     
-            #     if available_workers and ai_leader.active_tasks:
-            #         task_assignments = ai_leader.assign_tasks(available_workers)
-            #         
-            #         for worker_id, task in task_assignments.items():
-            #             worker = next((npc for npc in npcs if npc.npc_id == worker_id), None)
-            #             if worker:
-            #                 worker.assigned_task = task
+            # AKTIVIERT: KI-Leader System AN!
+            if tribe_color in self.ai_leaders:
+                ai_leader = self.ai_leaders[tribe_color]
+                ai_leader.update(world_state)
+                
+                # Weise Tasks zu verfügbaren Arbeitern zu
+                available_workers = [npc for npc in npcs if not npc.is_leader 
+                                   and (not npc.assigned_task or npc.assigned_task.completed)]
+                
+                if available_workers and ai_leader.active_tasks:
+                    task_assignments = ai_leader.assign_tasks(available_workers)
+                    
+                    for worker_id, task in task_assignments.items():
+                        worker = next((npc for npc in npcs if npc.npc_id == worker_id), None)
+                        if worker:
+                            worker.assigned_task = task
             #                 logger.info(f"📋 KI-Leader weist {worker_id} Task zu: {task.task_type.value}")
             
             # Update alle NPCs
