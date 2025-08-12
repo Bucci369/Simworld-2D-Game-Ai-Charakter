@@ -8,6 +8,7 @@ import time
 from ai_leader import AILeader, Task, TaskType, Priority
 
 # Logging setup
+logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -48,7 +49,7 @@ class SpeechBubble:
         surface.blit(background, screen_pos)
 
 class SimpleNPC:
-    def __init__(self, npc_id: str, position, tribe_color: str, is_leader: bool = False):
+    def __init__(self, npc_id: str, position, tribe_color: str, is_leader: bool = False, sprite_manager=None):
         self.npc_id = npc_id
         self.position = pygame.Vector2(position)
         self.is_leader = is_leader
@@ -58,6 +59,17 @@ class SimpleNPC:
         self.max_speed = 60
         self.target_tree = None
         self.carrying_wood = 0
+        
+        # Sprite Management
+        self.sprite_manager = sprite_manager
+        # Wähle Character Index basierend auf Rolle
+        if self.is_leader:
+            self.character_index = 0  # Leader bekommen den ersten Charakter (roten Teufel)
+        else:
+            self.character_index = random.randint(1, 10)  # Workers bekommen zufällige andere Charaktere
+        
+        logger.info(f"🎮 {self.npc_id} ({'Leader' if is_leader else 'Worker'}) verwendet Charakter {self.character_index}")
+        
         self.wood_capacity = 5
         self.target_house = None
         self.leader = None
@@ -78,8 +90,8 @@ class SimpleNPC:
         if is_leader:
             self.home_base = pygame.Vector2(position)  # Ursprungsposition als Home Base
         
-        # Erstelle rect für Kollisionserkennung
-        self.rect = pygame.Rect(self.position.x, self.position.y, 32, 32)  # 32x32 ist die typische Sprite-Größe
+        # Erstelle rect für Kollisionserkennung - passend zur Sprite-Größe
+        self.rect = pygame.Rect(self.position.x, self.position.y, 32, 32)  # 32x32 passend zur Sprite-Größe
 
     def update(self, dt: float, world_state: Dict):
         if self.is_leader:
@@ -97,9 +109,80 @@ class SimpleNPC:
             old_pos = pygame.Vector2(self.position)
             self.position += self.velocity * dt
             
+            # Aktualisiere rect Position
+            self.rect.center = (self.position.x, self.position.y)
+            
             # Debug: Zeige große Positionsänderungen
             if (self.position - old_pos).length() > 10:
                 logger.info(f"⚡ {self.npc_id} große Bewegung: {int(old_pos.x)},{int(old_pos.y)} → {int(self.position.x)},{int(self.position.y)}")
+
+    def draw(self, surface, camera):
+        sprite_drawn = False
+        
+        try:
+            # Versuche Sprite zu zeichnen
+            if hasattr(self, 'sprite_manager') and hasattr(self, 'character_index') and self.sprite_manager:
+                try:
+                    is_moving = self.velocity.length() > 0.1
+                    # Verwende dt für Animation nur wenn sich bewegend
+                    dt = 0.016 if is_moving else 0  # 16ms für 60fps, 0 für stillstehend
+                    current_frame = self.sprite_manager.get_frame(self.character_index, dt)
+                    
+                    if current_frame:
+                        # Berechne die Bildschirmposition
+                        screen_pos = camera.apply_to_point((
+                            self.position.x - current_frame.get_width() // 2,
+                            self.position.y - current_frame.get_height() // 2
+                        ))
+                        
+                        # Spiegele das Sprite basierend auf der Bewegungsrichtung
+                        if self.velocity.x < 0:  # Bewegt sich nach links
+                            current_frame = pygame.transform.flip(current_frame, True, False)
+                        
+                        # Zeichne den Charakter
+                        surface.blit(current_frame, screen_pos)
+                        sprite_drawn = True  # Erfolgreich gezeichnet
+                        
+                        # Debug-Logging (nur gelegentlich)
+                        if random.random() < 0.01:  # 1% der Zeit
+                            logger.info(f"✅ {self.npc_id} Sprite erfolgreich gezeichnet - Char: {self.character_index}, Pos: {screen_pos}")
+                        
+                    else:
+                        logger.error(f"❌ Kein Frame erhalten für {self.npc_id} (Char: {self.character_index})")
+                        
+                except Exception as e:
+                    logger.error(f"❌ Fehler beim Laden des Frames für {self.npc_id}: {str(e)}")
+            else:
+                # Debug-Info warum Sprite nicht gezeichnet wird
+                reasons = []
+                if not hasattr(self, 'sprite_manager'):
+                    reasons.append("kein sprite_manager")
+                elif not self.sprite_manager:
+                    reasons.append("sprite_manager ist None")
+                if not hasattr(self, 'character_index'):
+                    reasons.append("kein character_index")
+                logger.error(f"❌ {self.npc_id} kann Sprite nicht zeichnen: {', '.join(reasons)}")
+                    
+        except Exception as e:
+            logger.error(f"❌ Fataler Zeichenfehler für {self.npc_id}: {str(e)}")
+        
+        # Nur Fallback zeichnen wenn Sprite NICHT erfolgreich gezeichnet wurde
+        if not sprite_drawn:
+            try:
+                screen_pos = camera.apply_to_point(self.position)
+                color = (255, 50, 50) if self.is_leader else (255, 0, 0) 
+                pygame.draw.rect(surface, color, (screen_pos[0] - 15, screen_pos[1] - 15, 30, 30))
+                if random.random() < 0.02:  # 2% der Zeit
+                    logger.warning(f"⚠️ Verwende Fallback-Rendering für {self.npc_id}")
+            except Exception as e:
+                logger.error(f"❌ Fallback-Zeichenfehler für {self.npc_id}: {str(e)}")
+        
+        # Zeichne Sprechblase falls vorhanden
+        try:
+            if self.speech_bubble and not self.speech_bubble.is_expired():
+                self.speech_bubble.draw(surface, camera, self.position)
+        except Exception as e:
+            logger.error(f"❌ Sprechblase-Zeichenfehler für {self.npc_id}: {str(e)}")
 
     def _update_leader(self, dt: float, world_state: Dict):
         """Leader überprüft Häuser, gibt Aufträge UND baut sein eigenes Haus"""
@@ -1037,6 +1120,9 @@ class SimpleTribeSystem:
     def __init__(self):
         self.tribes = {}  # Color -> [NPCs]
         self.ai_leaders = {}  # Color -> AILeader
+        # Initialisiere den Sprite Manager
+        from character_sprites import CharacterSprites
+        self.sprite_manager = CharacterSprites()
         
     def create_tribe(self, color: str, leader_pos, num_workers: int = 2):
         """Erstelle einen neuen Stamm mit Leader und Workers"""
@@ -1047,7 +1133,7 @@ class SimpleTribeSystem:
         storage_pos = (leader_pos[0] + random.randint(-100, -50), 
                       leader_pos[1] + random.randint(-100, -50))
                       
-        leader = SimpleNPC(f"leader_{color}", leader_pos, color, is_leader=True)
+        leader = SimpleNPC(f"leader_{color}", leader_pos, color, is_leader=True, sprite_manager=self.sprite_manager)
         workers = []
         
         # Erstelle Worker in Gruppen um Clustering zu vermeiden
@@ -1060,7 +1146,7 @@ class SimpleTribeSystem:
                 leader_pos[1] + math.sin(angle) * distance + random.randint(-20, 20)
             )
             
-            worker = SimpleNPC(f"worker_{color}_{i}", worker_pos, color)
+            worker = SimpleNPC(f"worker_{color}_{i}", worker_pos, color, sprite_manager=self.sprite_manager)
             worker.leader = leader
             workers.append(worker)
         

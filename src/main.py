@@ -543,10 +543,18 @@ class Game:
         # NPC-System initialisieren (einfaches 2D-System)
         self.npc_system = NPCSystem2D(self.world if USE_SIMPLE_WORLD else None)
         
-        # 🧠 Einfaches KI-Stamm-System initialisieren
-        self.tribe_system = SimpleTribeSystem()
-        self.use_ai_tribess = True
-        print("🏠 Einfaches Tribe AI System geladen (1 Anführer + 2 Arbeiter)")
+        # 🧠 Hierarchisches KI-Stamm-System initialisieren
+        try:
+            from hierarchical_tribe_system import SimpleTribeSystem
+            self.tribe_system = SimpleTribeSystem()
+            self.use_ai_tribess = True
+            print("🏛️ Hierarchisches AI System geladen (Agenten-basiert)")
+        except ImportError:
+            print("⚠️ Hierarchisches System nicht verfügbar, verwende altes System")
+            from simple_tribe_ai import SimpleTribeSystem
+            self.tribe_system = SimpleTribeSystem()
+            self.use_ai_tribess = True
+            print("🏠 Einfaches Tribe AI System geladen (Fallback)")
         
         # Immer 2D-NPCs verwenden (Performance-optimiert)
         self.use_3d_npcs = False
@@ -758,7 +766,10 @@ class Game:
                     # I = KI-Debug-Modus togglen
                     if self.use_ai_tribes:
                         self.tribe_system.toggle_debug_mode()
-                        print("🧠 KI-Debug-Modus umgeschaltet!")
+                        if hasattr(self.tribe_system, 'volks'):
+                            print("🏛️ Hierarchisches AI Debug-Modus umgeschaltet!")
+                        else:
+                            print("🧠 KI-Debug-Modus umgeschaltet!")
                 elif event.key == pygame.K_k:
                     # K = KI-Statistiken anzeigen
                     if self.use_ai_tribes:
@@ -795,13 +806,26 @@ class Game:
                 
                 elif event.key == pygame.K_o:
                     # [O] - Boost Ressourcen sammeln (zum Testen)
-                    if hasattr(self.tribe_system, 'members'):
-                        print("⚡ RESSOURCEN-BOOST AKTIVIERT!")
+                    if hasattr(self.tribe_system, 'volks'):
+                        print("⚡ HIERARCHISCHES SYSTEM: Ressourcen-Boost!")
+                        for volk in self.tribe_system.volks.values():
+                            volk.update_resource('wood', 25)
+                            volk.update_resource('stone', 15)
+                            volk.update_resource('gold', 10)
+                        print("💰 Alle Völker haben Ressourcen erhalten!")
+                    elif hasattr(self.tribe_system, 'members'):
+                        print("⚡ ALTES SYSTEM: RESSOURCEN-BOOST AKTIVIERT!")
                         import random
                         for member in self.tribe_system.members[:20]:  # Erste 20 NPCs
                             member.memory.resources_collected['wood'] += random.randint(5, 15)
                             member.memory.resources_collected['stone'] += random.randint(3, 10)
                         print("🪓 +Holz und ⛏️ +Stein für 20 NPCs hinzugefügt!")
+                elif event.key == pygame.K_x:
+                    # [X] - Simuliere Bedrohung (nur hierarchisches System)
+                    if hasattr(self.tribe_system, 'simulate_threat'):
+                        print("🚨 SIMULIERE BEDROHUNG!")
+                        self.tribe_system.simulate_threat("red", threat_level=0.9)
+                        print("⚔️ Kriegsherr sollte Kampfmodus aktivieren!")
                 elif event.key == pygame.K_t:
                     # T = Teleportiere AI Members zum Player
                     if self.tribe_system:
@@ -973,11 +997,18 @@ class Game:
         
         # Hole Anführer-Antworten und zeige sie im Chat
         if hasattr(self, 'tribe_system') and self.tribe_system:
-            leader = self._get_tribe_leader('red')
-            if leader and hasattr(leader, 'command_responses'):
-                for response in leader.command_responses:
-                    self.chat_system.add_leader_response(response)
-                leader.command_responses.clear()
+            if hasattr(self.tribe_system, 'volks'):
+                # Hierarchisches System - hole Agent-Responses
+                for volk in self.tribe_system.volks.values():
+                    # Hier könnten wir Agent-Responses sammeln
+                    pass
+            else:
+                # Altes System
+                leader = self._get_tribe_leader('red')
+                if leader and hasattr(leader, 'command_responses'):
+                    for response in leader.command_responses:
+                        self.chat_system.add_leader_response(response)
+                    leader.command_responses.clear()
         
         # NPC-System updaten
         if self.use_ai_tribess:
@@ -1127,21 +1158,11 @@ class Game:
             # 3D-NPCs werden mit OpenGL gerendert (nach 2D-Rendering)
             pass  # 3D-Rendering erfolgt später
         elif self.use_ai_tribes:
-            # Einfaches Stamm-System rendern
+            # Stamm-System mit Sprite-Rendering
             for color, npcs in self.tribe_system.tribes.items():
                 for npc in npcs:
-                    # Erstelle ein einfaches Rechteck für jeden NPC
-                    color_rgb = (255, 0, 0) if color == "red" else (0, 0, 255)  # Rot für roten Stamm
-                    screen_pos = self.camera.apply_to_point((npc.position.x, npc.position.y))
-                    if npc.is_leader:  # Leader ist größer
-                        pygame.draw.rect(world_surface, color_rgb, (*screen_pos, 40, 40))
-                        pygame.draw.rect(world_surface, (255, 215, 0), (*screen_pos, 40, 40), 2)  # Goldener Rahmen
-                    else:
-                        pygame.draw.rect(world_surface, color_rgb, (*screen_pos, 32, 32))
-                    
-                    # Sprechblase rendern
-                    if npc.speech_bubble and not npc.speech_bubble.is_expired():
-                        npc.speech_bubble.draw(world_surface, self.camera, (npc.position.x + 16, npc.position.y - 10))
+                    # Verwende die NPC-eigene draw-Methode mit Sprite-System
+                    npc.draw(world_surface, self.camera)
         else:
             # Fallback: Einfache 2D-NPCs zeichnen
             self.npc_system.render(world_surface, self.camera)
@@ -1233,9 +1254,15 @@ class Game:
         print("="*50)
         print("🔬 I           = KI-Debug-Modus ein/aus")
         print("📊 K           = KI-Statistiken anzeigen")
-        print("💭 Stammverhalten: Sammeln, Planen, Bewachen, Gespräche")
-        print("🏘️ Territorium: Südlich des Sees (sichtbar)")
-        print("🤖 TensorFlow: Lernt aus Spielerverhalten")
+        print("💰 O           = Ressourcen-Boost (zum Testen)")
+        print("🚨 X           = Bedrohung simulieren (Hierarchisches System)")
+        print("🤖 T           = Tribe Members teleportieren")
+        print("")
+        print("🏛️ HIERARCHISCHES SYSTEM:")
+        print("   🤝 Diplomat-Agent: Überwacht Bedrohungen")
+        print("   ⚔️ Kriegsherr-Agent: Militärische Operationen") 
+        print("   💰 Wirtschaftsminister: Ressourcen & Bau")
+        print("   👥 Minions: Führen Befehle aus (Priorität-basiert)")
         print("="*50)
         print("💡 Tipp: Beobachte die Sonne im Zeit-UI!")
         print("="*50 + "\n")
