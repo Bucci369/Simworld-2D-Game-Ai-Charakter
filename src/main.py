@@ -1183,6 +1183,10 @@ class Game:
         self.all_sprites.update(dt)
         self.camera.update(self.player.rect, dt)
         
+        # 🦣 Welt-Update für animierte Objekte (Mammuts)
+        if hasattr(self, 'world') and self.world and hasattr(self.world, 'update'):
+            self.world.update(dt)
+        
         # 🚀 PERFORMANCE: Timer für weniger kritische Updates
         if not hasattr(self, '_system_update_timer'):
             self._system_update_timer = 0.0
