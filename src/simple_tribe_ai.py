@@ -1307,8 +1307,8 @@ class SimpleTribeSystem:
         
     def create_tribe(self, color: str, leader_pos, num_workers: int = 2):
         """Erstelle einen neuen Stamm mit Leader und Workers"""
-        # Begrenze Anzahl Workers für Performance
-        num_workers = min(num_workers, 29)  # Max 29 + 1 Leader = 30 total
+        # Begrenze Anzahl Workers für Performance (VERDOPPELT FÜR PERFORMANCE TEST)
+        num_workers = min(num_workers, 58)  # Max 58 + 1 Leader = 59 total (VERDOPPELT)
         
         # Erstelle Lager in der Nähe des Leaders
         storage_pos = (leader_pos[0] + random.randint(-100, -50), 

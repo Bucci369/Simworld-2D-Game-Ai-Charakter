@@ -689,11 +689,11 @@ class Game:
                 # Verwende hierarchisches System für BEIDE Völker
                 player_pos = (self.player.rect.centerx, self.player.rect.centery)
                 
-                # ROTES VOLK (bei Spieler) - erweiterte Reichweite
-                volk_red = self.tribe_system.create_growth_oriented_tribe_near_player("red", player_pos, distance=200.0, num_workers=10)
+                # ROTES VOLK (bei Spieler) - reduziert für optimale Performance
+                volk_red = self.tribe_system.create_growth_oriented_tribe_near_player("red", player_pos, distance=200.0, num_workers=4)
                 
-                # BLAUES VOLK (weiter entfernt) - erweiterte Reichweite
-                volk_blue = self.tribe_system.create_growth_oriented_tribe_near_player("blue", blue_tribe_spawn_pos, distance=200.0, num_workers=10)
+                # BLAUES VOLK (weiter entfernt) - reduziert für optimale Performance
+                volk_blue = self.tribe_system.create_growth_oriented_tribe_near_player("blue", blue_tribe_spawn_pos, distance=200.0, num_workers=4)
                 
                 # WICHTIG: Aktiviere kontinuierliche Updates
                 self.hierarchical_active = True
@@ -701,9 +701,9 @@ class Game:
                 print(f"🔴 Rotes Volk bei Spieler: {storage_pos_red}")
                 print(f"🔵 Blaues Volk oben rechts: {storage_pos_blue}")
             else:
-                # Fallback für beide Völker
-                self.tribe_system.create_tribe("red", tribe_spawn_pos, num_workers=10)
-                self.tribe_system.create_tribe("blue", blue_tribe_spawn_pos, num_workers=10)
+                # Fallback für beide Völker (reduziert für optimale Performance)
+                self.tribe_system.create_tribe("red", tribe_spawn_pos, num_workers=4)
+                self.tribe_system.create_tribe("blue", blue_tribe_spawn_pos, num_workers=4)
                 print("👥 Fallback System aktiv - 2 Völker erstellt")
         
         # Versuche gespeicherte Welt zu laden

@@ -45,59 +45,11 @@ def load_player_sprites():
 class NPC2D:
     """Intelligenter 2D-NPC mit echten Charaktersprites"""
     
-    def __init__(self, pos, world=None, npc_id=0, sprites=None):
-        self.world = world
-        self.npc_id = npc_id
-        self.position = pygame.Vector2(pos[0], pos[1])
-        self.velocity = pygame.Vector2(0, 0)
-        self.direction = 'down'
+    def __init__(self):
+        self.npcs = []
+        self.max_npcs = 4  # Reduziert für optimale Performance
+        self.spawn_timer = 0
         
-        # Animation
-        self.sprites = sprites if sprites else {}
-        self.anim_frame = 0
-        self.anim_timer = 0.0
-        self.anim_speed = 0.15  # Frames pro Sekunde
-        
-        # Bewegungs-AI (verbessert)
-        self.speed = random.uniform(40, 80)
-        self.max_speed = random.uniform(60, 100)
-        self.target_pos = None
-        self.arrive_threshold = random.uniform(5, 15)
-        self.wander_timer = 0.0
-        self.wander_delay = random.uniform(1.0, 4.0)
-        self.home_area = pygame.Vector2(pos[0], pos[1])
-        self.wander_radius = random.uniform(80, 150)
-        
-        # Intelligentes Schwarm-Verhalten
-        self.separation_distance = random.uniform(25, 45)
-        self.alignment_distance = random.uniform(50, 80)
-        self.cohesion_distance = random.uniform(70, 120)
-        self.neighbor_radius = 100
-        
-        # Persönlichkeits-Eigenschaften
-        self.aggression = random.uniform(0.3, 1.5)  # Wie stark Separation
-        self.sociability = random.uniform(0.5, 1.2)  # Wie stark Cohesion
-        self.conformity = random.uniform(0.6, 1.1)   # Wie stark Alignment
-        self.wanderlust = random.uniform(0.2, 0.8)   # Wie stark Wander
-        
-        # Farb-Variation für Unterscheidung
-        self.color_tint = (
-            random.randint(200, 255),
-            random.randint(200, 255),
-            random.randint(200, 255)
-        )
-        
-        # Leadership & Following
-        self.is_leader = random.random() < 0.15  # 15% Chance für Leadership
-        self.follow_target = None
-        self.leadership_strength = random.uniform(0.8, 1.5) if self.is_leader else random.uniform(0.2, 0.7)
-        
-        # Obstacle avoidance
-        self.vision_distance = 60
-        self.avoidance_strength = 2.0
-        
-        print(f"🎯 NPC{npc_id}: Leader={self.is_leader}, Aggro={self.aggression:.1f}, Social={self.sociability:.1f}")
-    
     def update(self, dt, other_npcs):
         """Intelligente NPC-Update mit verbessertem Schwarmverhalten"""
         self.wander_timer += dt
@@ -441,8 +393,8 @@ class NPCSystem2D:
         self.group_size = 4  # 4 NPCs pro Update-Gruppe
         self.current_group = 0
         
-        # Intelligente Spawn-Parameter
-        self.max_npcs = 8
+        # Intelligente Spawn-Parameter (reduziert für optimale Performance)
+        self.max_npcs = 4  # Reduziert für optimale Performance
         self.min_group_size = 3
         self.max_group_size = 6
         self.spawn_radius = 200
