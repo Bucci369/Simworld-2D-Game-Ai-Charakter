@@ -45,46 +45,59 @@ def load_player_sprites():
 class NPC2D:
     """Intelligenter 2D-NPC mit echten Charaktersprites"""
     
-    def __init__(self, position=(0, 0), personality_type="neutral"):
-        # Position und Bewegung
-        self.position = pygame.math.Vector2(position)
-        self.velocity = pygame.math.Vector2(0, 0)
-        self.target_position = pygame.math.Vector2(position)
-        self.speed = random.uniform(15, 25)
-        
-        # Persönlichkeit (beeinflusst Verhalten)
-        self.personality_type = personality_type
-        self.aggression = random.uniform(0.2, 0.8) if personality_type == "aggressive" else random.uniform(0.1, 0.4)
-        self.sociability = random.uniform(0.6, 1.0) if personality_type == "social" else random.uniform(0.2, 0.5)
-        self.conformity = random.uniform(0.3, 0.7)
-        
-        # Bewegungsverhalten
-        self.wander_timer = 0.0
-        self.wander_angle = random.uniform(0, 2 * math.pi)
-        self.vision_range = 80
-        self.separation_range = 25
+    def __init__(self, pos, world=None, npc_id=0, sprites=None):
+        self.world = world
+        self.npc_id = npc_id
+        self.position = pygame.Vector2(pos[0], pos[1])
+        self.velocity = pygame.Vector2(0, 0)
+        self.direction = 'down'
         
         # Animation
-        self.sprites = get_player_sprites()
-        if self.sprites:
-            self.current_sprite = random.choice(list(self.sprites.keys()))
-            self.frames = self.sprites[self.current_sprite]
-        else:
-            self.frames = [pygame.Surface((32, 32))]  # Fallback
-            self.frames[0].fill((100, 150, 200))
-        
-        self.current_frame = 0
+        self.sprites = sprites if sprites else {}
+        self.anim_frame = 0
         self.anim_timer = 0.0
-        self.anim_speed = random.uniform(0.15, 0.25)
+        self.anim_speed = 0.15  # Frames pro Sekunde
         
-        # Zustand
-        self.state = "wandering"
-        self.health = 100
-        self.energy = 100
+        # Bewegungs-AI (verbessert)
+        self.speed = random.uniform(40, 80)
+        self.max_speed = random.uniform(60, 100)
+        self.target_pos = None
+        self.arrive_threshold = random.uniform(5, 15)
+        self.wander_timer = 0.0
+        self.wander_delay = random.uniform(1.0, 4.0)
+        self.home_area = pygame.Vector2(pos[0], pos[1])
+        self.wander_radius = random.uniform(80, 150)
         
-        # Rendering
-        self.rect = pygame.Rect(position[0], position[1], 32, 32)
+        # Intelligentes Schwarm-Verhalten
+        self.separation_distance = random.uniform(25, 45)
+        self.alignment_distance = random.uniform(50, 80)
+        self.cohesion_distance = random.uniform(70, 120)
+        self.neighbor_radius = 100
         
+        # Persönlichkeits-Eigenschaften
+        self.aggression = random.uniform(0.3, 1.5)  # Wie stark Separation
+        self.sociability = random.uniform(0.5, 1.2)  # Wie stark Cohesion
+        self.conformity = random.uniform(0.6, 1.1)   # Wie stark Alignment
+        self.wanderlust = random.uniform(0.2, 0.8)   # Wie stark Wander
+        
+        # Farb-Variation für Unterscheidung
+        self.color_tint = (
+            random.randint(200, 255),
+            random.randint(200, 255),
+            random.randint(200, 255)
+        )
+        
+        # Leadership & Following
+        self.is_leader = random.random() < 0.15  # 15% Chance für Leadership
+        self.follow_target = None
+        self.leadership_strength = random.uniform(0.8, 1.5) if self.is_leader else random.uniform(0.2, 0.7)
+        
+        # Obstacle avoidance
+        self.vision_distance = 60
+        self.avoidance_strength = 2.0
+        
+        print(f"🎯 NPC{npc_id}: Leader={self.is_leader}, Aggro={self.aggression:.1f}, Social={self.sociability:.1f}")
+    
     def update(self, dt, other_npcs):
         """Intelligente NPC-Update mit verbessertem Schwarmverhalten"""
         self.wander_timer += dt
@@ -428,8 +441,8 @@ class NPCSystem2D:
         self.group_size = 4  # 4 NPCs pro Update-Gruppe
         self.current_group = 0
         
-        # Intelligente Spawn-Parameter (reduziert für optimale Performance)
-        self.max_npcs = 4  # Reduziert für optimale Performance
+        # Intelligente Spawn-Parameter (VERDOPPELT FÜR PERFORMANCE TEST)
+        self.max_npcs = 16  # VERDOPPELT von 8 auf 16
         self.min_group_size = 3
         self.max_group_size = 6
         self.spawn_radius = 200

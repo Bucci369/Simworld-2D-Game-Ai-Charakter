@@ -306,7 +306,6 @@ class CityPlanner:
         self.radius = radius
         self.house_positions = []  # Bereits belegte Positionen
         self.min_house_distance = 100  # Mehr Abstand zwischen Häusern für schönes Raster
-        self.world = None  # Referenz zur Welt für Kollisionserkennung
         
         # 🏘️ STADTPLANUNG: Definiere spezielle Gebäude-Bereiche
         self.storage_position = None  # Lager in der Mitte
@@ -319,69 +318,19 @@ class CityPlanner:
         self.rows = 3  # 3 Reihen von Häusern
         self.houses_per_row = 4  # 4 Häuser pro Reihe
         
-    def set_world(self, world):
-        """Setze World-Referenz für Kollisionserkennung"""
-        self.world = world
-        
     def setup_city_center(self):
-        """Erstelle Lager und Marktplatz in der Stadtmitte mit Kollisionserkennung"""
+        """Erstelle Lager und Marktplatz in der Stadtmitte"""
         if not self.has_storage:
-            # Suche sichere Position für das Lager
-            storage_pos = self._find_safe_building_position(self.center.x, self.center.y, max_attempts=20)
-            self.storage_position = storage_pos
+            # Lager genau in der Mitte
+            self.storage_position = (self.center.x, self.center.y)
             self.has_storage = True
             print(f"🏬 Lager geplant bei {self.storage_position}")
         
         if not self.has_marketplace:
-            # Suche sichere Position für den Marktplatz neben dem Lager
-            market_x = self.storage_position[0] + 80
-            market_y = self.storage_position[1]
-            market_pos = self._find_safe_building_position(market_x, market_y, max_attempts=20)
-            self.marketplace_position = market_pos
+            # Marktplatz neben dem Lager
+            self.marketplace_position = (self.center.x + 80, self.center.y)
             self.has_marketplace = True
             print(f"🏪 Marktplatz geplant bei {self.marketplace_position}")
-            
-    def _find_safe_building_position(self, x: float, y: float, max_attempts: int = 10) -> Tuple[float, float]:
-        """Finde sichere Position für Gebäude, die nicht auf Wasser liegt"""
-        # Teste zuerst die ursprüngliche Position
-        if self._is_building_position_safe(x, y):
-            return (x, y)
-        
-        # Suche in Spirale um die ursprüngliche Position
-        for attempt in range(max_attempts):
-            radius = (attempt + 1) * 30
-            for angle in range(0, 360, 45):  # 8 Richtungen
-                test_x = x + math.cos(math.radians(angle)) * radius
-                test_y = y + math.sin(math.radians(angle)) * radius
-                
-                if self._is_building_position_safe(test_x, test_y):
-                    return (test_x, test_y)
-        
-        # Fallback: Gib ursprüngliche Position zurück
-        print(f"⚠️ Keine sichere Position gefunden, verwende Fallback bei ({x}, {y})")
-        return (x, y)
-    
-    def _is_building_position_safe(self, x: float, y: float) -> bool:
-        """Prüfe ob eine Gebäude-Position sicher ist (nicht auf Wasser)"""
-        if not self.world or not hasattr(self.world, 'is_walkable'):
-            return True  # Ohne World-Referenz können wir nicht prüfen
-        
-        building_size = (64, 64)  # Standard-Gebäudegröße
-        
-        # Prüfe mehrere Punkte des Gebäudes
-        test_points = [
-            (x, y),  # Ecke links oben
-            (x + building_size[0], y),  # Ecke rechts oben
-            (x, y + building_size[1]),  # Ecke links unten
-            (x + building_size[0], y + building_size[1]),  # Ecke rechts unten
-            (x + building_size[0]/2, y + building_size[1]/2)  # Mitte
-        ]
-        
-        for test_point in test_points:
-            if not self.world.is_walkable(test_point[0], test_point[1]):
-                return False
-        
-        return True
         
     def find_house_position(self, tribe_color: str) -> Tuple[float, float]:
         """Finde Position im schönen Stadtraster - 🏘️ NEUE SYSTEMATIK"""
@@ -435,24 +384,7 @@ class CityPlanner:
         return fallback_position
         
     def _is_position_valid(self, position: Tuple[float, float]) -> bool:
-        """Prüfe ob Position für Haus geeignet ist (erweiterte Prüfung mit Kollisionserkennung)"""
-        # 🚫 KOLLISIONSERKENNUNG: Prüfe ob Position begehbar ist
-        if self.world and hasattr(self.world, 'is_walkable'):
-            house_size = (64, 64)  # Standard-Hausgröße
-            
-            # Prüfe mehrere Punkte des Hauses
-            test_points = [
-                position,  # Ecke links oben
-                (position[0] + house_size[0], position[1]),  # Ecke rechts oben
-                (position[0], position[1] + house_size[1]),  # Ecke links unten
-                (position[0] + house_size[0], position[1] + house_size[1]),  # Ecke rechts unten
-                (position[0] + house_size[0]/2, position[1] + house_size[1]/2)  # Mitte
-            ]
-            
-            for test_point in test_points:
-                if not self.world.is_walkable(test_point[0], test_point[1]):
-                    return False
-        
+        """Prüfe ob Position für Haus geeignet ist (erweiterte Prüfung)"""
         # Prüfe Abstand zu anderen Häusern
         for existing_pos in self.house_positions:
             distance = math.sqrt((position[0] - existing_pos[0])**2 + 
@@ -482,8 +414,7 @@ class HouseSystem:
     def __init__(self):
         self.houses = {}  # {owner_id: House}
         self.city_planners = {}  # {tribe_color: CityPlanner}
-        self.world = None  # � Welt-Referenz für sichere Platzierung
-        # �🏗️ NEUES FEATURE: Baustellen-Tracking
+        # 🏗️ NEUES FEATURE: Baustellen-Tracking
         self.construction_stats = {
             'red': {'active': 0, 'completed': 0, 'total_planned': 0},
             'blue': {'active': 0, 'completed': 0, 'total_planned': 0},
@@ -492,17 +423,6 @@ class HouseSystem:
         # Maximale parallele Baustellen pro Volk (skaliert für bis zu 11 NPCs)
         if not hasattr(self, 'max_active_sites_per_tribe'):
             self.max_active_sites_per_tribe = 11  # Ein Haus pro NPC
-            
-    def set_world(self, world):
-        """Setze Welt-Referenz für sichere Haus-Platzierung"""
-        self.world = world
-        print("🏠 Welt-Referenz für House-System gesetzt!")
-        # Gebe Welt auch an alle City Planner weiter
-        for city_planner in self.city_planners.values():
-            if hasattr(city_planner, 'set_world'):
-                city_planner.set_world(world)
-            else:
-                city_planner.world = world
         
     def get_construction_stats(self, tribe_color: str) -> Dict[str, int]:
         """Hole Baustatistiken für ein Volk"""
@@ -528,9 +448,6 @@ class HouseSystem:
     def create_city_planner(self, tribe_color: str, center: Tuple[float, float]):
         """Erstelle Stadtplaner für ein Volk"""
         planner = CityPlanner(center)
-        # Setze World-Referenz für Kollisionserkennung
-        if hasattr(self, 'world') and self.world:
-            planner.set_world(self.world)
         self.city_planners[tribe_color] = planner
         print(f"🏗️ Stadtplaner für {tribe_color} erstellt bei {center}")
         

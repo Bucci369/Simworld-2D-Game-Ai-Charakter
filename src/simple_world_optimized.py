@@ -17,211 +17,6 @@ from settings import (
 from asset_manager import asset_manager
 from spatial_index import SpatialIndex
 
-
-class Mammoth:
-    """Animiertes Mammut mit Bewegung und Sprite-Animation"""
-    
-    def __init__(self, position=(0, 0), herd_id=0):
-        self.position = pygame.math.Vector2(position)
-        self.velocity = pygame.math.Vector2(0, 0)
-        self.speed = random.uniform(8, 15)  # Langsamer als NPCs
-        self.direction = 'down'
-        
-        # Herden-Verhalten
-        self.herd_id = herd_id
-        self.herd_center = pygame.math.Vector2(position)  # Zentrum der Herde
-        self.max_distance_from_herd = 80  # Maximale Entfernung von der Herde
-        self.cohesion_strength = 0.3
-        self.separation_strength = 0.5
-        self.alignment_strength = 0.2
-        
-        # Animation
-        self.anim_frame = 0
-        self.anim_timer = 0.0
-        self.anim_speed = random.uniform(0.2, 0.4)  # Langsamere Animation
-        
-        # Bewegungsverhalten
-        self.wander_timer = 0.0
-        self.wander_angle = random.uniform(0, 2 * math.pi)
-        self.change_direction_timer = random.uniform(2.0, 5.0)
-        
-        # Sprite
-        self.sprites = self._load_mammoth_sprites()
-        self.rect = pygame.Rect(position[0], position[1], 64, 64)  # Größer als NPCs
-        
-    def _load_mammoth_sprites(self):
-        """Lade echte Mammut-Sprites aus Mammoth.png (4x4 Grid = 16 Frames)"""
-        try:
-            # Lade das Mammut-Sprite-Sheet
-            base_dir = os.path.dirname(os.path.dirname(__file__))
-            sprite_path = os.path.join(base_dir, 'assets', 'Mammoth.png')
-            
-            if not os.path.exists(sprite_path):
-                print("❌ Mammoth.png nicht gefunden, verwende Fallback")
-                return self._create_fallback_sprites()
-            
-            sheet = pygame.image.load(sprite_path).convert_alpha()
-            w, h = sheet.get_size()  # 64x128
-            
-            print(f"✅ Mammoth.png geladen: {w}x{h}")
-            
-            # 4x4 Grid: 64/4 = 16 pixel breit, 128/4 = 32 pixel hoch pro Frame
-            frame_width = w // 4   # 16 pixels
-            frame_height = h // 4  # 32 pixels
-            
-            sprites = {}
-            directions = ['down', 'left', 'right', 'up']
-            
-            # Jede Reihe ist eine Richtung, jede Spalte ist ein Animationsframe
-            for row, direction in enumerate(directions):
-                sprites[direction] = []
-                for col in range(4):  # 4 Frames pro Richtung
-                    x = col * frame_width   # 0, 16, 32, 48
-                    y = row * frame_height  # 0, 32, 64, 96
-                    
-                    # Extrahiere Frame
-                    frame = pygame.Surface((frame_width, frame_height), pygame.SRCALPHA)
-                    frame.blit(sheet, (0, 0), (x, y, frame_width, frame_height))
-                    
-                    # Skaliere das Mammut größer (4x größer)
-                    scaled_frame = pygame.transform.scale(frame, (frame_width * 4, frame_height * 2))
-                    sprites[direction].append(scaled_frame)
-            
-            print(f"✅ Mammut-Sprites erstellt: 4 Richtungen x 4 Frames = 16 Sprites")
-            return sprites
-            
-        except Exception as e:
-            print(f"❌ Fehler beim Laden der Mammut-Sprites: {e}")
-            return self._create_fallback_sprites()
-    
-    def _create_fallback_sprites(self):
-        """Erstelle Fallback-Sprites falls Mammoth.png nicht geladen werden kann"""
-        sprites = {}
-        directions = ['down', 'left', 'right', 'up']
-        
-        for direction in directions:
-            sprites[direction] = []
-            for frame in range(4):  # 4 Animation frames wie beim echten Sprite
-                surface = pygame.Surface((64, 64), pygame.SRCALPHA)
-                # Einfache Mammut-Form
-                color_base = (101, 67, 33)  # Braun
-                
-                # Körper
-                pygame.draw.ellipse(surface, color_base, (8, 20, 48, 32))
-                # Kopf
-                pygame.draw.circle(surface, color_base, (32, 15), 12)
-                # Stoßzähne
-                pygame.draw.circle(surface, (255, 255, 255), (28, 18), 3)
-                pygame.draw.circle(surface, (255, 255, 255), (36, 18), 3)
-                
-                # Einfache Bewegungsanimation
-                if frame % 2 == 1:
-                    surface = pygame.transform.scale(surface, (66, 66))
-                    surface = pygame.transform.scale(surface, (64, 64))
-                
-                sprites[direction].append(surface)
-        
-        return sprites
-
-    def update(self, dt, other_mammoths=None):
-        """Update Mammut-Bewegung und Animation mit Herdenverhalten"""
-        self.anim_timer += dt
-        self.wander_timer += dt
-        self.change_direction_timer -= dt
-        
-        # Animation update
-        if self.anim_timer >= self.anim_speed:
-            self.anim_timer = 0.0
-            self.anim_frame = (self.anim_frame + 1) % 4  # 4 Frames statt 2
-        
-        # 🦣 HERDENVERHALTEN: Berechne Kräfte für intelligente Bewegung
-        separation_force = pygame.Vector2(0, 0)
-        cohesion_force = pygame.Vector2(0, 0)
-        alignment_force = pygame.Vector2(0, 0)
-        
-        if other_mammoths:
-            nearby_mammoths = []
-            herd_range = 120  # Reichweite für Herdenverhalten
-            
-            for other in other_mammoths:
-                if other != self:
-                    distance = self.position.distance_to(other.position)
-                    if distance < herd_range:
-                        nearby_mammoths.append(other)
-            
-            if nearby_mammoths:
-                # SEPARATION: Halte Mindestabstand (nicht zu nah)
-                separation_range = 40
-                for other in nearby_mammoths:
-                    distance = self.position.distance_to(other.position)
-                    if distance < separation_range and distance > 0:
-                        diff = self.position - other.position
-                        diff = diff.normalize() * (separation_range - distance) / separation_range
-                        separation_force += diff
-                
-                # COHESION: Bewege dich zum Zentrum der Herde
-                if len(nearby_mammoths) > 0:
-                    center = pygame.Vector2(0, 0)
-                    for other in nearby_mammoths:
-                        center += other.position
-                    center /= len(nearby_mammoths)
-                    cohesion_force = (center - self.position) * 0.02  # Sanfte Anziehung
-                
-                # ALIGNMENT: Bewege dich in ähnliche Richtung wie die Herde
-                if len(nearby_mammoths) > 0:
-                    avg_velocity = pygame.Vector2(0, 0)
-                    for other in nearby_mammoths:
-                        avg_velocity += other.velocity
-                    avg_velocity /= len(nearby_mammoths)
-                    alignment_force = (avg_velocity - self.velocity) * 0.1
-        
-        # Richtung gelegentlich ändern (aber weniger wenn in Herde)
-        wander_strength = 1.0 if not other_mammoths else 0.3  # Weniger Wander wenn in Herde
-        if self.change_direction_timer <= 0:
-            # Weniger drastische Richtungsänderungen
-            angle_change = random.uniform(-0.5, 0.5)  # Kleinere Winkeländerung
-            self.wander_angle += angle_change
-            self.change_direction_timer = random.uniform(4.0, 10.0)  # Länger zwischen Änderungen
-        
-        # Wander-Kraft
-        wander_force = pygame.Vector2(
-            math.cos(self.wander_angle),
-            math.sin(self.wander_angle)
-        ) * self.speed * wander_strength
-        
-        # 🦣 INTELLIGENTE KRAFTKOMBINATION
-        total_force = wander_force
-        total_force += separation_force * 8.0  # Separation hat höchste Priorität
-        total_force += cohesion_force * 4.0    # Dann Zusammenhalt
-        total_force += alignment_force * 2.0   # Dann Gleichrichtung
-        
-        # Aktualisiere Geschwindigkeit mit sanfter Interpolation
-        self.velocity = self.velocity.lerp(total_force, 0.03)  # Sehr sanfte Bewegung
-        
-        # Begrenze Geschwindigkeit
-        max_speed = self.speed * 0.6  # Langsamere Mammuts
-        if self.velocity.length() > max_speed:
-            self.velocity.scale_to_length(max_speed)
-        
-        # Position aktualisieren
-        self.position += self.velocity * dt
-        
-        # Richtung basierend auf Bewegung
-        if abs(self.velocity.x) > abs(self.velocity.y):
-            self.direction = 'right' if self.velocity.x > 0 else 'left'
-        else:
-            self.direction = 'down' if self.velocity.y > 0 else 'up'
-        
-        # Rect aktualisieren
-        self.rect.center = (int(self.position.x), int(self.position.y))
-    
-    def get_current_sprite(self):
-        """Hole aktuellen Sprite basierend auf Richtung und Animation"""
-        if self.direction in self.sprites:
-            return self.sprites[self.direction][self.anim_frame]
-        return self.sprites['down'][0]  # Fallback
-
-
 class SimpleWorldOptimized:
     """🚀 PERFORMANCE-OPTIMIERTE Version von SimpleWorld"""
     
@@ -262,7 +57,6 @@ class SimpleWorldOptimized:
         # Initialize other systems
         self._initialize_structures()
         self._generate_optimized_forests(density)
-        self._generate_mammoth_herds()  # 🦣 Mammut-Herden generieren
         self._load_decoration_sprites()
         self._generate_decorations()
         
@@ -277,18 +71,6 @@ class SimpleWorldOptimized:
         
         print(f"✅ Optimized SimpleWorld created: {self.width}x{self.height} pixels")
         print(f"📊 Cache stats: {asset_manager.get_cache_stats()}")
-
-    def update(self, dt):
-        """Update world elements like animated mammoths"""
-        # Update mammoth animations and movement with herd behavior
-        if hasattr(self, 'mammoths') and self.mammoths:
-            for mammoth in self.mammoths:
-                # Übergebe alle anderen Mammuts für Herdenverhalten
-                mammoth.update(dt, self.mammoths)
-                
-                # Begrenze Mammuts auf Weltgrenzen
-                mammoth.position.x = max(32, min(mammoth.position.x, self.width - 32))
-                mammoth.position.y = max(32, min(mammoth.position.y, self.height - 32))
 
     def _generate_world_features(self):
         """🚀 OPTIMIZED: Generate all world features efficiently"""
@@ -497,82 +279,6 @@ class SimpleWorldOptimized:
         
         print(f"✅ Generated {len(self.trees)} trees in optimized forests with spatial indexing")
 
-    def _generate_mammoth_herds(self):
-        """🦣 Generiere Mammut-Herden in der Nähe der Wälder"""
-        print("🦣 Generating mammoth herds near forests...")
-        self.mammoths = []
-        
-        # Waldgebiete für Mammut-Herden (südlich und nördlich der Wälder)
-        forest_areas = [
-            # Nordwest-Wald - Herde südlich
-            {'center': (self.width * 0.2, self.height * 0.35), 'radius': 80},
-            # Nordost-Wald - Herde südlich  
-            {'center': (self.width * 0.8, self.height * 0.35), 'radius': 80},
-            # Südwest-Wald - Herde nördlich
-            {'center': (self.width * 0.2, self.height * 0.65), 'radius': 80},
-            # Südost-Wald - Herde nördlich
-            {'center': (self.width * 0.8, self.height * 0.65), 'radius': 80},
-        ]
-        
-        # Erste 2 Herden: südlich und nördlich am Wald
-        for i, area in enumerate(forest_areas[:2]):  # Nur erste 2 Herden
-            center_x, center_y = area['center']
-            radius = area['radius']
-            
-            # 5 Mammuts pro Herde
-            for mammoth_num in range(5):
-                attempts = 0
-                max_attempts = 50
-                
-                while attempts < max_attempts:
-                    attempts += 1
-                    
-                    # Position in Kreis um Waldgebiet
-                    distance = random.uniform(10, radius)
-                    angle = random.uniform(0, 2 * math.pi)
-                    
-                    mx = int(center_x + distance * math.cos(angle))
-                    my = int(center_y + distance * math.sin(angle))
-                    
-                    # Check bounds (64x64 ist die Mammut-Größe)
-                    if (mx < 32 or my < 32 or 
-                        mx > self.width - 64 or 
-                        my > self.height - 64):
-                        continue
-                    
-                    # Check overlap with features
-                    tile_x = mx // TILE_SIZE
-                    tile_y = my // TILE_SIZE
-                    if 0 <= tile_x < self.area_width_tiles and 0 <= tile_y < self.area_height_tiles:
-                        code = self.overlay[tile_y][tile_x]
-                        if code in ('water', 'path', 'farm'):
-                            continue
-                    
-                    # Check distance to trees (nicht zu nah)
-                    min_distance_to_trees = 50
-                    too_close_to_trees = any(
-                        ((mx - tx)**2 + (my - ty)**2) < min_distance_to_trees**2
-                        for tx, ty in self.trees[:min(100, len(self.trees))]  # Check only first 100 trees
-                    )
-                    
-                    if too_close_to_trees:
-                        continue
-                    
-                    # Check distance to other mammoths (Herdenbildung)
-                    min_distance_to_mammoths = 20
-                    too_close_to_mammoths = any(
-                        ((mx - mammoth.position.x)**2 + (my - mammoth.position.y)**2) < min_distance_to_mammoths**2
-                        for mammoth in self.mammoths
-                    )
-                    
-                    if not too_close_to_mammoths:
-                        # Erstelle Mammut-Objekt statt nur Position
-                        mammoth = Mammoth((mx, my))
-                        self.mammoths.append(mammoth)
-                        break
-        
-        print(f"✅ Generated {len(self.mammoths)} mammoths in {len(forest_areas[:2])} herds near forests")
-
     def _create_portal_sprite(self):
         """Create a 2D portal sprite"""
         portal_size = 64
@@ -590,24 +296,13 @@ class SimpleWorldOptimized:
         """Load decorative sprites with caching"""
         self.decoration_sprites = {}
         
-        decoration_files = [
-            'pilz.png', 'blume.png', 'blume1.png', 'stone.png', 'gold.png',
-            # 🌸 Neue Dekoration-Objekte hinzugefügt
-            'blumen_deco.png', 'blumen_deco1.png', 'stone_deco.png'
-        ]
+        decoration_files = ['pilz.png', 'blume.png', 'blume1.png', 'stone.png', 'gold.png']
         
         for filename in decoration_files:
             sprite = asset_manager.load_image(f'Outdoor decoration/{filename}')
             if sprite:
-                # Größere Skalierung für bestimmte Objekte
                 if filename in ['stone.png', 'gold.png']:
                     sprite = pygame.transform.scale(sprite, (int(sprite.get_width() * 2.5), int(sprite.get_height() * 2.5)))
-                elif filename == 'stone_deco.png':
-                    # Stone-Dekorationen kleiner machen
-                    sprite = pygame.transform.scale(sprite, (int(sprite.get_width() * 1.2), int(sprite.get_height() * 1.2)))
-                elif filename in ['blumen_deco.png', 'blumen_deco1.png']:
-                    # Blumen-Dekorationen etwas größer machen
-                    sprite = pygame.transform.scale(sprite, (int(sprite.get_width() * 1.5), int(sprite.get_height() * 1.5)))
                 self.decoration_sprites[filename] = sprite
 
     def _generate_decorations(self):
@@ -618,15 +313,11 @@ class SimpleWorldOptimized:
         self.decorations = []
         
         decoration_densities = {
-            'pilz.png': 0.004,      # Etwas mehr Pilze
-            'blume.png': 0.008,     # Mehr normale Blumen
-            'blume1.png': 0.008,    # Mehr normale Blumen
-            'stone.png': 0.006,     # Mehr normale Steine
-            'gold.png': 0.002,      # Etwas mehr Gold
-            # 🌸 Neue Dekoration-Objekte MASSIV verteilt
-            'blumen_deco.png': 0.015,   # VIEL mehr Deko-Blumen!
-            'blumen_deco1.png': 0.015,  # VIEL mehr Deko-Blumen!
-            'stone_deco.png': 0.012     # VIEL mehr Deko-Steine!
+            'pilz.png': 0.002,    # Reduced density
+            'blume.png': 0.004, 
+            'blume1.png': 0.004,
+            'stone.png': 0.003,
+            'gold.png': 0.001
         }
         
         for decoration_name, density in decoration_densities.items():
@@ -638,7 +329,7 @@ class SimpleWorldOptimized:
             
             attempts = 0
             placed = 0
-            max_attempts = wanted_count * 3  # Reduziert für Performance mit vielen Dekorationen
+            max_attempts = wanted_count * 5  # Reduced from 10
             
             while placed < wanted_count and attempts < max_attempts:
                 attempts += 1
@@ -653,10 +344,10 @@ class SimpleWorldOptimized:
                     code = self.overlay[tile_y][tile_x]
                     
                     if code is None:  # Only on grass
-                        # 🚀 PERFORMANCE: Sehr schnelle Baum-Prüfung für viele Dekorationen
+                        # Quick distance check to trees (optimized)
                         too_close = any(
-                            ((x - tx)**2 + (y - ty)**2) < 25**2
-                            for tx, ty in self.trees[:min(20, len(self.trees))]  # Nur erste 20 Bäume prüfen
+                            ((x - tx)**2 + (y - ty)**2) < 32**2
+                            for tx, ty in self.trees[:min(50, len(self.trees))]  # Check only first 50 trees
                         )
                         
                         if not too_close:
@@ -750,22 +441,6 @@ class SimpleWorldOptimized:
                 if (x < view_right and x + tree_width > view_left and
                     y < view_bottom and y + tree_height > view_top):
                     surface.blit(self.oak_tree, (x - view_left, y - view_top))
-        
-        # 🦣 MAMMOTH RENDERING: Render animated mammoth herds
-        if hasattr(self, 'mammoths') and self.mammoths:
-            for mammoth in self.mammoths:
-                # Frustum culling for mammoth
-                mx, my = mammoth.position.x, mammoth.position.y
-                mammoth_size = 64  # Mammut-Größe
-                
-                if (mx < view_right and mx + mammoth_size > view_left and
-                    my < view_bottom and my + mammoth_size > view_top):
-                    # Hole animierten Sprite
-                    sprite = mammoth.get_current_sprite()
-                    if sprite:
-                        render_x = int(mx - view_left - mammoth_size // 2)
-                        render_y = int(my - view_top - mammoth_size // 2)
-                        surface.blit(sprite, (render_x, render_y))
 
     # Keep all other methods from original SimpleWorld
     def is_blocked_rect(self, rect: pygame.Rect) -> bool:
@@ -774,14 +449,6 @@ class SimpleWorldOptimized:
         if 0 <= ty < self.area_height_tiles and 0 <= tx < self.area_width_tiles:
             return self.overlay[ty][tx] == 'water'
         return False
-
-    def is_walkable(self, x: float, y: float) -> bool:
-        """🌍 Prüfe ob Position walkable ist (nicht Wasser)"""
-        tx = int(x // TILE_SIZE)
-        ty = int(y // TILE_SIZE)
-        if 0 <= ty < self.area_height_tiles and 0 <= tx < self.area_width_tiles:
-            return self.overlay[ty][tx] != 'water'
-        return False  # Außerhalb der Welt ist nicht walkable
 
     def find_safe_spawn(self) -> tuple[int,int]:
         cx = self.area_width_tiles // 2
