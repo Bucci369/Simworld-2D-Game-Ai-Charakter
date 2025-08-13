@@ -49,7 +49,7 @@ class SpeechBubble:
         surface.blit(background, screen_pos)
 
 class SimpleNPC:
-    def __init__(self, npc_id: str, position, tribe_color: str, is_leader: bool = False, sprite_manager=None):
+    def __init__(self, npc_id: str, position, tribe_color: str, is_leader: bool = False, sprite_manager=None, world=None):
         self.npc_id = npc_id
         self.position = pygame.Vector2(position)
         self.is_leader = is_leader
@@ -58,6 +58,7 @@ class SimpleNPC:
         self.velocity = pygame.Vector2(0, 0)
         self.max_speed = 60
         self.target_tree = None
+        self.world = world  # 🌍 Referenz zur Welt für Kollisionserkennung
         # 🪵 NEUE BALANCE: Max 5 Holz tragen (ein Baum = ein Trip)
         self.carrying_wood = 0
         self.max_wood_capacity = 5  # Maximal 5 Holz tragen
@@ -161,15 +162,37 @@ class SimpleNPC:
         if self.chop_cooldown > 0:
             self.chop_cooldown -= dt
         
-        # Bewegung anwenden
+        # Bewegung anwenden mit Kollisionserkennung
         if self.velocity.length() > 0:
             # Normalisiere die Geschwindigkeit
             if self.velocity.length() > self.max_speed:
                 self.velocity.scale_to_length(self.max_speed)
             
-            # Bewege NPC
+            # Berechne neue Position
             old_pos = pygame.Vector2(self.position)
-            self.position += self.velocity * dt
+            new_pos = self.position + self.velocity * dt
+            
+            # 🌍 KOLLISIONSERKENNUNG: Prüfe ob neue Position walkable ist
+            if self.world and hasattr(self.world, 'is_walkable'):
+                if self.world.is_walkable(new_pos.x, new_pos.y):
+                    self.position = new_pos
+                else:
+                    # Kollision! Stoppe Bewegung
+                    self.velocity *= 0.5  # Reduziere Geschwindigkeit
+                    # Versuche alternative Richtungen
+                    for angle_offset in [0.5, -0.5, 1.0, -1.0]:
+                        alt_velocity = self.velocity.rotate(angle_offset * 90)  # 45°, -45°, 90°, -90°
+                        alt_pos = old_pos + alt_velocity * dt
+                        if self.world.is_walkable(alt_pos.x, alt_pos.y):
+                            self.position = alt_pos
+                            self.velocity = alt_velocity
+                            break
+                    else:
+                        # Keine walkbare Alternative gefunden - bleibe stehen
+                        self.velocity = pygame.Vector2(0, 0)
+            else:
+                # Fallback: Keine Welt-Referenz, normale Bewegung
+                self.position = new_pos
             
             # Aktualisiere rect Position
             self.rect.center = (self.position.x, self.position.y)
@@ -1301,33 +1324,77 @@ class SimpleTribeSystem:
     def __init__(self):
         self.tribes = {}  # Color -> [NPCs]
         self.ai_leaders = {}  # Color -> AILeader
+        self.world = None  # 🌍 Welt-Referenz für Kollisionserkennung
         # Initialisiere den Sprite Manager
         from character_sprites import CharacterSprites
         self.sprite_manager = CharacterSprites()
+        
+    def set_world(self, world):
+        """Setze Welt-Referenz für Kollisionserkennung"""
+        self.world = world
+        print("🌍 Welt-Referenz für Tribe-System gesetzt!")
+        
+    def _find_safe_spawn_position(self, preferred_pos, max_distance=200):
+        """Finde eine sichere Spawn-Position in der Nähe der bevorzugten Position"""
+        if not self.world or not hasattr(self.world, 'is_walkable'):
+            return preferred_pos  # Fallback wenn keine Welt verfügbar
+        
+        # Prüfe zuerst die bevorzugte Position
+        if self.world.is_walkable(preferred_pos[0], preferred_pos[1]):
+            return preferred_pos
+        
+        # Suche in erweiterten Kreisen nach sicherer Position
+        for radius in range(20, max_distance, 20):
+            for angle in range(0, 360, 30):  # Alle 30 Grad prüfen
+                x = preferred_pos[0] + radius * math.cos(math.radians(angle))
+                y = preferred_pos[1] + radius * math.sin(math.radians(angle))
+                
+                if self.world.is_walkable(x, y):
+                    print(f"🌍 Sichere Position gefunden: {int(x)}, {int(y)} (Distance: {radius})")
+                    return (x, y)
+        
+        # Fallback: Verwende Welt-Safe-Spawn falls verfügbar
+        if hasattr(self.world, 'find_safe_spawn'):
+            safe_pos = self.world.find_safe_spawn()
+            print(f"🌍 Verwende Welt-Safe-Spawn: {safe_pos}")
+            return safe_pos
+        
+        print(f"⚠️ Keine sichere Position gefunden, verwende Original: {preferred_pos}")
+        return preferred_pos
         
     def create_tribe(self, color: str, leader_pos, num_workers: int = 2):
         """Erstelle einen neuen Stamm mit Leader und Workers"""
         # Begrenze Anzahl Workers für Performance (reduziert für optimale Performance)
         num_workers = min(num_workers, 4)  # Max 4 + 1 Leader = 5 total
         
+        # 🌍 Finde sichere Leader-Position
+        safe_leader_pos = self._find_safe_spawn_position(leader_pos)
+        
         # Erstelle Lager in der Nähe des Leaders
-        storage_pos = (leader_pos[0] + random.randint(-100, -50), 
-                      leader_pos[1] + random.randint(-100, -50))
+        storage_pos = (safe_leader_pos[0] + random.randint(-100, -50), 
+                      safe_leader_pos[1] + random.randint(-100, -50))
                       
-        leader = SimpleNPC(f"leader_{color}", leader_pos, color, is_leader=True, sprite_manager=self.sprite_manager)
+        leader = SimpleNPC(f"leader_{color}", safe_leader_pos, color, is_leader=True, sprite_manager=self.sprite_manager, world=getattr(self, 'world', None))
         workers = []
         
         # Erstelle Worker in Gruppen um Clustering zu vermeiden
         for i in range(num_workers):
-            # Verschiedene Bereiche um den Leader
-            angle = (i / num_workers) * 2 * math.pi
-            distance = random.uniform(30, 100)
-            worker_pos = (
-                leader_pos[0] + math.cos(angle) * distance + random.randint(-20, 20),
-                leader_pos[1] + math.sin(angle) * distance + random.randint(-20, 20)
-            )
+            # Versuche eine gültige Position um den Leader zu finden
+            preferred_pos = None
+            for attempt in range(10):  # Max 10 Versuche für Preferred Position
+                # Verschiedene Bereiche um den Leader
+                angle = (i / num_workers) * 2 * math.pi + random.uniform(-0.5, 0.5)
+                distance = random.uniform(30, 100)
+                preferred_pos = (
+                    safe_leader_pos[0] + math.cos(angle) * distance + random.randint(-20, 20),
+                    safe_leader_pos[1] + math.sin(angle) * distance + random.randint(-20, 20)
+                )
+                break  # Verwende erste generierte Position
             
-            worker = SimpleNPC(f"worker_{color}_{i}", worker_pos, color, sprite_manager=self.sprite_manager)
+            # 🌍 Finde sichere Worker-Position
+            safe_worker_pos = self._find_safe_spawn_position(preferred_pos, max_distance=150)
+            
+            worker = SimpleNPC(f"worker_{color}_{i}", safe_worker_pos, color, sprite_manager=self.sprite_manager, world=getattr(self, 'world', None))
             worker.leader = leader
             workers.append(worker)
         

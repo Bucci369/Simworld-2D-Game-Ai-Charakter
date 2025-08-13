@@ -630,6 +630,11 @@ class Game:
         
         # 🏠 House-System initialisieren (Häuser und Stadtplanung)
         self.house_system = HouseSystem()
+        # 🌍 Welt-Referenz für sichere Haus-Platzierung
+        if hasattr(self.house_system, 'set_world'):
+            self.house_system.set_world(self.world)
+        else:
+            self.house_system.world = self.world
         
         # 💬 Chat-System initialisieren (Spieler-Befehle an Anführer)
         self.chat_system = ChatSystem(SCREEN_WIDTH, SCREEN_HEIGHT)
@@ -649,6 +654,13 @@ class Game:
             self.tribe_system = SimpleTribeSystem()
             self.use_ai_tribess = True
             print("🏠 Einfaches Tribe AI System geladen (Fallback)")
+        
+        # 🌍 Welt-Referenz für Kollisionserkennung
+        if hasattr(self.tribe_system, 'set_world'):
+            self.tribe_system.set_world(self.world)
+        else:
+            # Fallback: Direktes setzen
+            self.tribe_system.world = self.world
         
         # Immer 2D-NPCs verwenden (Performance-optimiert)
         self.use_3d_npcs = False

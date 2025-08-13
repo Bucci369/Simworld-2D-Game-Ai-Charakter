@@ -414,7 +414,8 @@ class HouseSystem:
     def __init__(self):
         self.houses = {}  # {owner_id: House}
         self.city_planners = {}  # {tribe_color: CityPlanner}
-        # 🏗️ NEUES FEATURE: Baustellen-Tracking
+        self.world = None  # � Welt-Referenz für sichere Platzierung
+        # �🏗️ NEUES FEATURE: Baustellen-Tracking
         self.construction_stats = {
             'red': {'active': 0, 'completed': 0, 'total_planned': 0},
             'blue': {'active': 0, 'completed': 0, 'total_planned': 0},
@@ -423,6 +424,17 @@ class HouseSystem:
         # Maximale parallele Baustellen pro Volk (skaliert für bis zu 11 NPCs)
         if not hasattr(self, 'max_active_sites_per_tribe'):
             self.max_active_sites_per_tribe = 11  # Ein Haus pro NPC
+            
+    def set_world(self, world):
+        """Setze Welt-Referenz für sichere Haus-Platzierung"""
+        self.world = world
+        print("🏠 Welt-Referenz für House-System gesetzt!")
+        # Gebe Welt auch an alle City Planner weiter
+        for city_planner in self.city_planners.values():
+            if hasattr(city_planner, 'set_world'):
+                city_planner.set_world(world)
+            else:
+                city_planner.world = world
         
     def get_construction_stats(self, tribe_color: str) -> Dict[str, int]:
         """Hole Baustatistiken für ein Volk"""

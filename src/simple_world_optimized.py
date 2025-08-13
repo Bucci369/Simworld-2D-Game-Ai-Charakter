@@ -600,8 +600,11 @@ class SimpleWorldOptimized:
             sprite = asset_manager.load_image(f'Outdoor decoration/{filename}')
             if sprite:
                 # Größere Skalierung für bestimmte Objekte
-                if filename in ['stone.png', 'gold.png', 'stone_deco.png']:
+                if filename in ['stone.png', 'gold.png']:
                     sprite = pygame.transform.scale(sprite, (int(sprite.get_width() * 2.5), int(sprite.get_height() * 2.5)))
+                elif filename == 'stone_deco.png':
+                    # Stone-Dekorationen kleiner machen
+                    sprite = pygame.transform.scale(sprite, (int(sprite.get_width() * 1.2), int(sprite.get_height() * 1.2)))
                 elif filename in ['blumen_deco.png', 'blumen_deco1.png']:
                     # Blumen-Dekorationen etwas größer machen
                     sprite = pygame.transform.scale(sprite, (int(sprite.get_width() * 1.5), int(sprite.get_height() * 1.5)))
@@ -615,15 +618,15 @@ class SimpleWorldOptimized:
         self.decorations = []
         
         decoration_densities = {
-            'pilz.png': 0.002,    # Reduced density
-            'blume.png': 0.004, 
-            'blume1.png': 0.004,
-            'stone.png': 0.003,
-            'gold.png': 0.001,
-            # 🌸 Neue Dekoration-Objekte großflächig verteilt
-            'blumen_deco.png': 0.006,   # Häufiger als normale Blumen
-            'blumen_deco1.png': 0.006,  # Häufiger als normale Blumen  
-            'stone_deco.png': 0.004     # Etwas häufiger als normale Steine
+            'pilz.png': 0.004,      # Etwas mehr Pilze
+            'blume.png': 0.008,     # Mehr normale Blumen
+            'blume1.png': 0.008,    # Mehr normale Blumen
+            'stone.png': 0.006,     # Mehr normale Steine
+            'gold.png': 0.002,      # Etwas mehr Gold
+            # 🌸 Neue Dekoration-Objekte MASSIV verteilt
+            'blumen_deco.png': 0.015,   # VIEL mehr Deko-Blumen!
+            'blumen_deco1.png': 0.015,  # VIEL mehr Deko-Blumen!
+            'stone_deco.png': 0.012     # VIEL mehr Deko-Steine!
         }
         
         for decoration_name, density in decoration_densities.items():
@@ -635,7 +638,7 @@ class SimpleWorldOptimized:
             
             attempts = 0
             placed = 0
-            max_attempts = wanted_count * 5  # Reduced from 10
+            max_attempts = wanted_count * 3  # Reduziert für Performance mit vielen Dekorationen
             
             while placed < wanted_count and attempts < max_attempts:
                 attempts += 1
@@ -650,10 +653,10 @@ class SimpleWorldOptimized:
                     code = self.overlay[tile_y][tile_x]
                     
                     if code is None:  # Only on grass
-                        # Quick distance check to trees (optimized)
+                        # 🚀 PERFORMANCE: Sehr schnelle Baum-Prüfung für viele Dekorationen
                         too_close = any(
-                            ((x - tx)**2 + (y - ty)**2) < 32**2
-                            for tx, ty in self.trees[:min(50, len(self.trees))]  # Check only first 50 trees
+                            ((x - tx)**2 + (y - ty)**2) < 25**2
+                            for tx, ty in self.trees[:min(20, len(self.trees))]  # Nur erste 20 Bäume prüfen
                         )
                         
                         if not too_close:
@@ -771,6 +774,14 @@ class SimpleWorldOptimized:
         if 0 <= ty < self.area_height_tiles and 0 <= tx < self.area_width_tiles:
             return self.overlay[ty][tx] == 'water'
         return False
+
+    def is_walkable(self, x: float, y: float) -> bool:
+        """🌍 Prüfe ob Position walkable ist (nicht Wasser)"""
+        tx = int(x // TILE_SIZE)
+        ty = int(y // TILE_SIZE)
+        if 0 <= ty < self.area_height_tiles and 0 <= tx < self.area_width_tiles:
+            return self.overlay[ty][tx] != 'water'
+        return False  # Außerhalb der Welt ist nicht walkable
 
     def find_safe_spawn(self) -> tuple[int,int]:
         cx = self.area_width_tiles // 2
