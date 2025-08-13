@@ -45,10 +45,45 @@ def load_player_sprites():
 class NPC2D:
     """Intelligenter 2D-NPC mit echten Charaktersprites"""
     
-    def __init__(self):
-        self.npcs = []
-        self.max_npcs = 4  # Reduziert für optimale Performance
-        self.spawn_timer = 0
+    def __init__(self, position=(0, 0), personality_type="neutral"):
+        # Position und Bewegung
+        self.position = pygame.math.Vector2(position)
+        self.velocity = pygame.math.Vector2(0, 0)
+        self.target_position = pygame.math.Vector2(position)
+        self.speed = random.uniform(15, 25)
+        
+        # Persönlichkeit (beeinflusst Verhalten)
+        self.personality_type = personality_type
+        self.aggression = random.uniform(0.2, 0.8) if personality_type == "aggressive" else random.uniform(0.1, 0.4)
+        self.sociability = random.uniform(0.6, 1.0) if personality_type == "social" else random.uniform(0.2, 0.5)
+        self.conformity = random.uniform(0.3, 0.7)
+        
+        # Bewegungsverhalten
+        self.wander_timer = 0.0
+        self.wander_angle = random.uniform(0, 2 * math.pi)
+        self.vision_range = 80
+        self.separation_range = 25
+        
+        # Animation
+        self.sprites = get_player_sprites()
+        if self.sprites:
+            self.current_sprite = random.choice(list(self.sprites.keys()))
+            self.frames = self.sprites[self.current_sprite]
+        else:
+            self.frames = [pygame.Surface((32, 32))]  # Fallback
+            self.frames[0].fill((100, 150, 200))
+        
+        self.current_frame = 0
+        self.anim_timer = 0.0
+        self.anim_speed = random.uniform(0.15, 0.25)
+        
+        # Zustand
+        self.state = "wandering"
+        self.health = 100
+        self.energy = 100
+        
+        # Rendering
+        self.rect = pygame.Rect(position[0], position[1], 32, 32)
         
     def update(self, dt, other_npcs):
         """Intelligente NPC-Update mit verbessertem Schwarmverhalten"""
