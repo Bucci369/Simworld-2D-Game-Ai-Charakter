@@ -1,6 +1,7 @@
 import pygame
 import os
 from settings import SCREEN_WIDTH, SCREEN_HEIGHT
+from asset_manager import asset_manager
 
 class InventorySlot:
     """Ein einzelner Inventar-Slot"""
@@ -87,8 +88,8 @@ class Inventory:
         carrot_path = os.path.join(base_dir, 'assets', 'Outdoor decoration', 'Karotte_stufe3.png')
         if os.path.exists(carrot_path):
             try:
-                img = pygame.image.load(carrot_path).convert_alpha()
-                icons['carrot'] = pygame.transform.scale(img, (self.slot_size - 8, self.slot_size - 8))
+                icon_size = (self.slot_size - 8, self.slot_size - 8)
+                icons['carrot'] = asset_manager.load_scaled_image('split/Farm/broccoli.png', icon_size)
                 print("Karotten-Icon geladen!")
             except Exception as e:
                 print(f"Fehler beim Laden des Karotten-Icons: {e}")

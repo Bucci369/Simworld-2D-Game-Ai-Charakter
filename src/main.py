@@ -1,8 +1,10 @@
 import os
 import pygame
-from settings import SCREEN_WIDTH, SCREEN_HEIGHT, FPS, MAP_PATH, TITLE, USE_SIMPLE_WORLD, FULLSCREEN, DEBUG_PANEL_WIDTH, TILE_SIZE
+from settings import SCREEN_WIDTH, SCREEN_HEIGHT, FPS, MAP_PATH, TITLE, USE_SIMPLE_WORLD, USE_KENNEY_WORLD, USE_ISOMETRIC_WORLD, FULLSCREEN, DEBUG_PANEL_WIDTH, TILE_SIZE
 from map_loader import TiledMap, Camera
-from simple_world import SimpleWorld
+from simple_world_optimized import SimpleWorldOptimized
+# from kenney_world import KenneyWorld  # Deaktiviert - Datei existiert nicht
+# from isometric_world import IsometricWorld  # Deaktiviert - Datei existiert nicht
 from player import Player
 from time_system import GameTime
 from farming_system import FarmingSystem
@@ -31,9 +33,8 @@ class DebugPanel:
         self.scroll = 0
         self.entry_h = 35  # Verkleinert von 48
         self.current_frame = 0  # Welcher Frame des Sprite-Sheets gerade angezeigt wird
-        # Debug Panel Assets deaktiviert für Performance
-        # if True:  # auto scan
-        #     self.scan_assets()
+        # 🚀 PERFORMANCE: Debug Panel Asset-Scanning komplett deaktiviert
+        # Asset-Scanning war der größte Performance-Killer beim Start
         
         # Single Asset Loading System
         self.current_single_asset = None
@@ -562,21 +563,37 @@ class Game:
         flags = 0
         if FULLSCREEN:
             flags |= pygame.FULLSCREEN
-        self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), flags)
+        
+        # 🚀 SMOOTH RENDERING: VSYNC für konsistente Framerate
+        self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), flags, vsync=1)
         pygame.display.set_caption(TITLE)
         self.clock = pygame.time.Clock()
         self.running = True
+        
+        # 🚀 PERFORMANCE: Frame-Zeit Tracking für konsistente Bewegung
+        self.frame_time = 0.0
+        self.target_fps = FPS
         
         # Zeit-System initialisieren
         self.game_time = GameTime()
 
         if USE_SIMPLE_WORLD:
-            # Verwende die bewährte SimpleWorld
-            self.world = SimpleWorld()  # Verwendet Settings: 10x10 Tiles
+            if USE_ISOMETRIC_WORLD:
+                # 🏘️ ISOMETRIC WORLD: Fallback auf optimierte SimpleWorld
+                self.world = SimpleWorldOptimized()  # Fallback da IsometricWorld nicht verfügbar
+                print(f"🏘️ ISOMETRIC WORLD (Fallback auf SimpleWorldOptimized): {self.world.width}x{self.world.height} pixels")
+            elif USE_KENNEY_WORLD:
+                # 🏘️ KENNEY WORLD: Fallback auf optimierte SimpleWorld
+                self.world = SimpleWorldOptimized()  # Fallback da KenneyWorld nicht verfügbar
+                print(f"🏘️ KENNEY WORLD (Fallback auf SimpleWorldOptimized): {self.world.width}x{self.world.height} pixels")
+            else:
+                # 🚀 PERFORMANCE: Verwende optimierte SimpleWorld  
+                self.world = SimpleWorldOptimized()  # Optimiert: Asset-Caching + Pre-Rendering
+                print(f"🚀 OPTIMIZED SimpleWorld created: {self.world.width}x{self.world.height} pixels")
+                
             self.camera = Camera(self.world.width, self.world.height, SCREEN_WIDTH, SCREEN_HEIGHT)
             self.map = None
             spawn_x, spawn_y = self.world.find_safe_spawn()
-            print(f"� SimpleWorld erstellt: {self.world.width}x{self.world.height} Pixel")
         else:
             self.map = TiledMap(MAP_PATH)
             self.camera = Camera(self.map.width, self.map.height, SCREEN_WIDTH, SCREEN_HEIGHT)
@@ -637,22 +654,26 @@ class Game:
         self.use_3d_npcs = False
         self.use_ai_tribes = True  # Verwende KI-Stamm statt einfacher NPCs
         
-        # 🏘️ NEUE SPAWN-POSITION: Links unten für bessere Stadtplanung
-        # Verschiebe Spawn-Position nach links unten für mehr Platz
-        spawn_x = spawn_x - 300  # 300 Pixel nach links
-        spawn_y = spawn_y + 200  # 200 Pixel nach unten
-        
-        # Verwende Spieler-Position als Zentrum für Völker-Verteilung
+        # 🏘️ SPAWN-POSITIONEN: Erweiterte Verteilung in 70x70 Welt für mehr Abstand
+        # Spieler spawnt in der Mitte der Welt (1120, 1120 bei 2240x2240)
         player_x, player_y = spawn_x, spawn_y
         tribe_spawn_pos = (player_x, player_y)
         
         if self.use_ai_tribess:
-            # 🏘️ STADTPLANUNG: Lager und Marktplatz in der Mitte der Stadt
-            storage_pos = (tribe_spawn_pos[0], tribe_spawn_pos[1])  # Lager in der Mitte
-            self.storage_system.create_storage(storage_pos, "red")
+            # 🏘️ ERSTES VOLK (ROT): Beim Spieler (Mitte der Welt)
+            storage_pos_red = (tribe_spawn_pos[0], tribe_spawn_pos[1])
+            self.storage_system.create_storage(storage_pos_red, "red")
+            self.house_system.create_city_planner("red", storage_pos_red)
             
-            # Initialisiere Stadtplaner für den Stamm
-            self.house_system.create_city_planner("red", storage_pos)
+            # 🏘️ ZWEITES VOLK (BLAU): Weiter entfernt für größere Welt
+            # Erweiterte Verteilung in 70x70 Welt mit mehr Abstand
+            blue_spawn_x = player_x + 500  # 500 Pixel rechts vom Spieler (mehr Abstand)
+            blue_spawn_y = player_y - 400  # 400 Pixel nach oben vom Spieler (mehr Abstand)
+            blue_tribe_spawn_pos = (blue_spawn_x, blue_spawn_y)
+            
+            storage_pos_blue = (blue_spawn_x, blue_spawn_y)
+            self.storage_system.create_storage(storage_pos_blue, "blue")
+            self.house_system.create_city_planner("blue", storage_pos_blue)
             
             # HIERARCHISCHES SYSTEM RICHTIG VERBINDEN
             if hasattr(self.tribe_system, 'create_growth_oriented_tribe_near_player'):
@@ -665,17 +686,25 @@ class Game:
                     'storage': self.storage_system
                 }
                 
-                # Verwende hierarchisches System
+                # Verwende hierarchisches System für BEIDE Völker
                 player_pos = (self.player.rect.centerx, self.player.rect.centery)
-                volk = self.tribe_system.create_growth_oriented_tribe_near_player("red", player_pos, distance=150.0, num_workers=10)
+                
+                # ROTES VOLK (bei Spieler) - erweiterte Reichweite
+                volk_red = self.tribe_system.create_growth_oriented_tribe_near_player("red", player_pos, distance=200.0, num_workers=10)
+                
+                # BLAUES VOLK (weiter entfernt) - erweiterte Reichweite
+                volk_blue = self.tribe_system.create_growth_oriented_tribe_near_player("blue", blue_tribe_spawn_pos, distance=200.0, num_workers=10)
                 
                 # WICHTIG: Aktiviere kontinuierliche Updates
                 self.hierarchical_active = True
-                print("🏛️ Hierarchisches System AKTIV - NPCs bauen Stadt!")
+                print("🏛️ Hierarchisches System AKTIV - 2 Völker bauen Städte!")
+                print(f"🔴 Rotes Volk bei Spieler: {storage_pos_red}")
+                print(f"🔵 Blaues Volk oben rechts: {storage_pos_blue}")
             else:
-                # Fallback
+                # Fallback für beide Völker
                 self.tribe_system.create_tribe("red", tribe_spawn_pos, num_workers=10)
-                print("👥 Fallback System aktiv")
+                self.tribe_system.create_tribe("blue", blue_tribe_spawn_pos, num_workers=10)
+                print("👥 Fallback System aktiv - 2 Völker erstellt")
         
         # Versuche gespeicherte Welt zu laden
         self.auto_load_world()
@@ -695,11 +724,18 @@ class Game:
         self.asset_input_text = ""
 
     def run(self):
+        """🚀 SMOOTH GAME LOOP: Optimiert für konsistente Performance"""
         while self.running:
-            dt = self.clock.tick(FPS) / 1000.0
+            # 🚀 PERFORMANCE: Frame-Zeit mit Begrenzung für Stabilität
+            frame_ms = self.clock.tick(self.target_fps)
+            dt = min(frame_ms / 1000.0, 1.0/30.0)  # Max 30 FPS minimum (verhindert riesige dt-Sprünge)
+            
+            self.frame_time = dt
+            
             self.handle_events()
             self.update(dt)
             self.draw()
+            
         pygame.quit()
 
     def _get_tribe_leader(self, tribe_color: str):
@@ -726,14 +762,42 @@ class Game:
                 try:
                     command = self.chat_system.handle_input(event)
                     if command:
-                        # Sende Befehl an den Anführer
-                        leader = self._get_tribe_leader('red')  # Später anpassbar für verschiedene Völker
-                        if leader:
+                        # Bestimme welcher Anführer angesprochen werden soll
+                        mods = pygame.key.get_mods()
+                        if mods & pygame.KMOD_SHIFT:
+                            # Shift+Chat = Sprich mit blauem Anführer
+                            leader = self._get_tribe_leader('blue')
+                            tribe_name = "Blaues Volk"
+                        elif mods & pygame.KMOD_CTRL:
+                            # Ctrl+Chat = Sprich mit beiden Anführern
+                            leaders = [self._get_tribe_leader('red'), self._get_tribe_leader('blue')]
+                            tribe_name = "Beide Völker"
+                        else:
+                            # Standard = Sprich mit rotem Anführer
+                            leader = self._get_tribe_leader('red')
+                            tribe_name = "Rotes Volk"
+                        
+                        # Befehle senden
+                        if mods & pygame.KMOD_CTRL:
+                            # An beide Anführer senden
                             from chat_system import CommandParser
                             parser = CommandParser()
                             parsed = parser.parse_command(command.command_text)
-                            leader.receive_player_command(parsed)
-                            self.chat_system.add_leader_response(f"Befehl erhalten: {parsed['description']}")
+                            
+                            for i, leader in enumerate(leaders):
+                                if leader:
+                                    leader.receive_player_command(parsed)
+                                    color = "🔴" if i == 0 else "🔵"
+                                    self.chat_system.add_leader_response(f"{color} {tribe_name}: Befehl erhalten: {parsed['description']}")
+                        else:
+                            # An einen Anführer senden
+                            if leader:
+                                from chat_system import CommandParser
+                                parser = CommandParser()
+                                parsed = parser.parse_command(command.command_text)
+                                leader.receive_player_command(parsed)
+                                color = "🔴" if tribe_name == "Rotes Volk" else "🔵"
+                                self.chat_system.add_leader_response(f"{color} {tribe_name}: Befehl erhalten: {parsed['description']}")
                         continue  # Skip andere Input-Handling wenn Chat aktiv
                 except Exception as e:
                     print(f"❌ Chat-System Fehler: {e}")
@@ -827,51 +891,6 @@ class Game:
                     # T = Zeit auf normal zurücksetzen
                     self.game_time.set_time_speed(1.0)
                     print("Zeitgeschwindigkeit zurückgesetzt")
-                # Schnelle Sonnen-Demo Tasten
-                elif event.key == pygame.K_m:
-                    # M = Morgen (6:00)
-                    self.game_time.set_time(6, 0)
-                    print("Zeit gesetzt auf: Morgen 06:00")
-                elif event.key == pygame.K_n:
-                    # N = Mittag (12:00)
-                    self.game_time.set_time(12, 0)
-                    print("Zeit gesetzt auf: Mittag 12:00")
-                elif event.key == pygame.K_i:
-                    # I = Inventar öffnen/schließen
-                    self.inventory.toggle_visibility()
-                elif event.key == pygame.K_e:
-                    # E = Essen (erste essbare Item im Inventar) oder Abend (wenn Shift gedrückt)
-                    if pygame.key.get_pressed()[pygame.K_LSHIFT]:
-                        # Shift+E = Abend (18:00)
-                        self.game_time.set_time(18, 0)
-                        print("Zeit gesetzt auf: Abend 18:00")
-                    else:
-                        # E = Essen
-                        # Suche nach essbaren Items im Inventar
-                        eaten = False
-                        for slot in self.inventory.slots:
-                            if not slot.is_empty() and self.hunger_system.is_food_item(slot.item_type):
-                                if self.hunger_system.eat_item(slot.item_type, self.inventory):
-                                    print(f"🍴 {slot.item_type} gegessen!")
-                                    eaten = True
-                                    break
-                        if not eaten:
-                            print("Keine essbaren Items im Inventar!")
-                            
-                # Zoom-Steuerung mit Tasten (Bildschirm-Mitte als Zentrum)
-                elif event.key == pygame.K_PLUS or event.key == pygame.K_EQUALS:
-                    # + oder = Taste = Zoom in
-                    center_pos = (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
-                    self.camera.zoom_in(center_pos=center_pos)
-                elif event.key == pygame.K_MINUS:
-                    # - Taste = Zoom out  
-                    center_pos = (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
-                    self.camera.zoom_out(center_pos=center_pos)
-                elif event.key == pygame.K_BACKQUOTE:
-                    # ` (Backtick) Taste = Zoom zurücksetzen (statt 0 wegen Debug Panel Konflikt)
-                    center_pos = (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
-                    self.camera.set_zoom(1.0, center_pos=center_pos)
-                    print("Zoom zurückgesetzt: 100%")
                 elif event.key == pygame.K_SPACE:
                     # SPACE = Zeitraffer-Modus (5x Geschwindigkeit für Sonnen-Demo)
                     if self.game_time.time_speed == 5.0:
@@ -894,13 +913,35 @@ class Game:
                     # H = Hilfe für Zeit-Steuerung anzeigen
                     self.show_time_help()
                 elif event.key == pygame.K_i:
-                    # I = KI-Debug-Modus togglen
-                    if self.use_ai_tribes:
-                        self.tribe_system.toggle_debug_mode()
-                        if hasattr(self.tribe_system, 'volks'):
-                            print("🏛️ Hierarchisches AI Debug-Modus umgeschaltet!")
-                        else:
-                            print("🧠 KI-Debug-Modus umgeschaltet!")
+                    # I = Inventar öffnen/schließen
+                    self.inventory.toggle_visibility()
+                elif event.key == pygame.K_e:
+                    # E = Essen (erste essbare Item im Inventar) oder Abend (wenn Shift gedrückt)
+                    if pygame.key.get_pressed()[pygame.K_LSHIFT]:
+                        # Shift+E = Abend (18:00)
+                        self.game_time.set_time(18, 0)
+                        print("Zeit gesetzt auf: Abend 18:00")
+                    else:
+                        # E = Essen
+                        # Suche nach essbaren Items im Inventar
+                        eaten = False
+                        for slot in self.inventory.slots:
+                            if not slot.is_empty() and self.hunger_system.is_food_item(slot.item_type):
+                                if self.hunger_system.eat_item(slot.item_type, self.inventory):
+                                    print(f"� {slot.item_type} gegessen!")
+                                    eaten = True
+                                    break
+                        if not eaten:
+                            print("Keine essbaren Items im Inventar!")
+                # Schnelle Sonnen-Demo Tasten
+                elif event.key == pygame.K_m:
+                    # M = Morgen (6:00)
+                    self.game_time.set_time(6, 0)
+                    print("Zeit gesetzt auf: Morgen 06:00")
+                elif event.key == pygame.K_n:
+                    # N = Mittag (12:00)
+                    self.game_time.set_time(12, 0)
+                    print("Zeit gesetzt auf: Mittag 12:00")
                 elif event.key == pygame.K_k:
                     # K = KI-Statistiken anzeigen
                     if self.use_ai_tribess:
@@ -1047,7 +1088,7 @@ class Game:
                         world_pos = self.camera.screen_to_world(event.pos)
                         self.world.update_drag(world_pos)
             elif event.type == pygame.MOUSEWHEEL:
-                # Mausrad-Events separat behandeln
+                # Mausrad-Events für Debug Panel
                 if self.debug_panel.visible:
                     mx, my = pygame.mouse.get_pos()
                     if self.debug_panel.is_mouse_over(mx, my, self.screen.get_width()):
@@ -1058,14 +1099,6 @@ class Game:
                             available_height = self.debug_panel.surface.get_height() - info_panel_height
                             max_scroll = max(0, len(self.debug_panel.assets)*self.debug_panel.entry_h - available_height)
                             self.debug_panel.scroll = min(max_scroll, self.debug_panel.scroll + self.debug_panel.entry_h)
-                        continue
-                
-                # Zoom-Steuerung mit Mausrad (wenn nicht über Debug Panel)
-                mouse_pos = pygame.mouse.get_pos()
-                if event.y > 0:  # Nach oben scrollen = Zoom in
-                    self.camera.zoom_in(center_pos=mouse_pos)
-                elif event.y < 0:  # Nach unten scrollen = Zoom out
-                    self.camera.zoom_out(center_pos=mouse_pos)
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 # Zeit-UI Klicks zuerst prüfen
                 if self.game_time.handle_mouse_event(event):
@@ -1143,29 +1176,39 @@ class Game:
         return (cx * 32 + 16, cy * 32 + 16)
 
     def update(self, dt):
-        # Zeit-System updaten
+        # 🚀 PERFORMANCE: Optimierte Update-Frequenz für bessere FPS
+        
+        # Kritische Systeme - jedes Frame
         self.game_time.update()
+        self.all_sprites.update(dt)
+        self.camera.update(self.player.rect, dt)
         
-        # Hunger-System updaten
-        self.hunger_system.update(self.game_time)
+        # 🚀 PERFORMANCE: Timer für weniger kritische Updates
+        if not hasattr(self, '_system_update_timer'):
+            self._system_update_timer = 0.0
+            
+        self._system_update_timer += dt
         
-        # Farming-System updaten
-        self.farming_system.update(dt, self.game_time)
+        # Aktualisiere diese Systeme nur alle 0.1 Sekunden (10 FPS statt 60 FPS)
+        if self._system_update_timer >= 0.1:
+            self.hunger_system.update(self.game_time)
+            self.farming_system.update(self._system_update_timer, self.game_time)
+            self.tree_system.update(self._system_update_timer)
+            self.mining_system.update(self._system_update_timer)
+            self.storage_system.update(self._system_update_timer)
+            self.house_system.update(self._system_update_timer)
+            
+            # Reset timer
+            self._system_update_timer = 0.0
         
-        # Tree-System updaten
-        self.tree_system.update(dt)
-        
-        # Mining-System updaten
-        self.mining_system.update(dt)
-        
-        # 📦 Storage-System updaten
-        self.storage_system.update(dt)
-        
-        # 🏠 House-System updaten
-        self.house_system.update(dt)
-        
-        # 💬 Chat-System updaten
-        self.chat_system.update(dt)
+        # Chat-System - nur alle 0.05 Sekunden (20 FPS)
+        if not hasattr(self, '_chat_update_timer'):
+            self._chat_update_timer = 0.0
+            
+        self._chat_update_timer += dt
+        if self._chat_update_timer >= 0.05:
+            self.chat_system.update(self._chat_update_timer)
+            self._chat_update_timer = 0.0
         
         # Hole Anführer-Antworten und zeige sie im Chat
         if hasattr(self, 'tribe_system') and self.tribe_system:
@@ -1182,20 +1225,24 @@ class Game:
                         self.chat_system.add_leader_response(response)
                     leader.command_responses.clear()
         
-        # NPC-System updaten
-        if self.use_ai_tribess:
-            # Erstelle world_state Dictionary mit allen benötigten Systemen
-            world_state = {
-                'tree_system': self.tree_system,
-                'storage_system': self.storage_system,
-                'house_system': self.house_system,
-                'tribe_system': self.tribe_system
-            }
-            # Update das vereinfachte Stamm-System
-            self.tribe_system.update(dt, world_state)
-        else:
-            # Update einfaches NPC-System
-            self.npc_system.update(dt)
+        # 🚀 PERFORMANCE: AI-System nur alle 0.2 Sekunden updaten (5 FPS statt 60 FPS)
+        if not hasattr(self, '_ai_update_timer'):
+            self._ai_update_timer = 0.0
+            
+        self._ai_update_timer += dt
+        if self._ai_update_timer >= 0.2:
+            if self.use_ai_tribess:
+                world_state = {
+                    'tree_system': self.tree_system,
+                    'storage_system': self.storage_system,
+                    'house_system': self.house_system,
+                    'tribe_system': self.tribe_system
+                }
+                self.tribe_system.update(self._ai_update_timer, world_state)
+            else:
+                self.npc_system.update(self._ai_update_timer)
+            
+            self._ai_update_timer = 0.0
         
         # Farm-Tiles an Farming-System weitergeben
         self.farming_system.set_farm_tiles(self.farm_ui.get_farm_tiles())
@@ -1219,10 +1266,11 @@ class Game:
             if action_data:
                 self.farming_system.handle_farm_action(action_data, self.inventory)
         
-        self.all_sprites.update(dt)
-        self.camera.update(self.player.rect, dt)  # dt für smooth zoom
-        
-        # Memory Management - periodische Bereinigung
+        # Memory Management - periodische Bereinigung (weniger häufig)
+        if not hasattr(self, '_memory_cleanup_timer'):
+            self._memory_cleanup_timer = 0.0
+            self._memory_cleanup_interval = 120.0  # Erhöht von 60 auf 120 Sekunden
+            
         self._memory_cleanup_timer += dt
         if self._memory_cleanup_timer >= self._memory_cleanup_interval:
             self._memory_cleanup_timer = 0.0
@@ -1288,29 +1336,38 @@ class Game:
         return False
     
     def _cleanup_memory(self):
-        """Bereinigt Memory Leaks periodisch"""
+        """🚀 PERFORMANCE: Erweiterte Memory-Bereinigung"""
         try:
-            # 1. World Asset Cache bereinigen
-            if USE_SIMPLE_WORLD and hasattr(self.world, 'cleanup_cache'):
-                self.world.cleanup_cache()
+            # 1. Asset-Manager Cache-Status anzeigen
+            if hasattr(self, 'world'):
+                from asset_manager import asset_manager
+                stats = asset_manager.get_cache_stats()
+                print(f"📊 Asset Cache: {stats['images_cached']} images, {stats['scaled_cached']} scaled, {stats['hit_rate']} hit rate")
             
             # 2. NPC Speech Bubbles bereinigen
             if hasattr(self, 'tribe_system') and hasattr(self.tribe_system, 'tribes'):
+                cleaned_bubbles = 0
                 for tribe_color, npcs in self.tribe_system.tribes.items():
                     for npc in npcs:
                         if hasattr(npc, 'speech_bubble') and npc.speech_bubble:
                             if npc.speech_bubble.is_expired():
                                 npc.speech_bubble = None
+                                cleaned_bubbles += 1
+                if cleaned_bubbles > 0:
+                    print(f"🧹 Cleaned {cleaned_bubbles} expired speech bubbles")
             
-            # 3. Dynamic Objects begrenzen
+            # 3. Dynamic Objects sind jetzt automatisch begrenzt in SimpleWorldOptimized
             if USE_SIMPLE_WORLD and hasattr(self.world, 'dynamic_objects'):
-                if len(self.world.dynamic_objects) > 150:
-                    self.world.dynamic_objects = self.world.dynamic_objects[-100:]
+                obj_count = len(self.world.dynamic_objects)
+                print(f"📦 Dynamic objects: {obj_count}/{getattr(self.world, 'max_dynamic_objects', 50)}")
             
-            print(f"🧹 Memory cleanup durchgeführt")
+            # 4. Pygame Surface Cache bereinigen (falls vorhanden)
+            pygame.display.flip()  # Ensure display updates are processed
+            
+            print(f"🧹 Memory cleanup completed successfully")
             
         except Exception as e:
-            print(f"❌ Memory cleanup Fehler: {e}")
+            print(f"❌ Memory cleanup error: {e}")
 
     def auto_load_world(self):
         """Lädt automatisch beim Start eine gespeicherte Welt"""
@@ -1320,43 +1377,42 @@ class Game:
                 print("Gespeicherte Welt automatisch geladen!")
 
     def draw(self):
-        # === World Surface Rendering (mit Zoom) ===
-        # Hole World Surface von der Kamera
-        world_surface = self.camera.get_world_surface()
+        # Bildschirm leeren
+        self.screen.fill((0, 0, 0))
         
-        # Basis-Szene auf World Surface zeichnen (normale Größe)
+        # Welt direkt auf Bildschirm zeichnen
         if USE_SIMPLE_WORLD:
-            self.world.render(world_surface, self.camera.camera)
+            self.world.render(self.screen, self.camera.camera)
         else:
-            self.map.render(world_surface, self.camera.camera)
+            self.map.render(self.screen, self.camera.camera)
             
         # Farm-Tiles als Bodentextur zeichnen
-        self.farm_ui.draw_farm_tiles(world_surface, self.camera)
+        self.farm_ui.draw_farm_tiles(self.screen, self.camera)
         
-        # Bäume auf World Surface zeichnen
-        self.tree_system.draw(world_surface, self.camera.camera)
+        # Bäume zeichnen
+        self.tree_system.draw(self.screen, self.camera.camera)
         
-        # Mining-Resources auf World Surface zeichnen
-        self.mining_system.draw(world_surface, self.camera.camera)
+        # Mining-Resources zeichnen
+        self.mining_system.draw(self.screen, self.camera.camera)
         
-        # 📦 Lager auf World Surface zeichnen
-        self.storage_system.draw(world_surface, self.camera.camera)
+        # 📦 Lager zeichnen
+        self.storage_system.draw(self.screen, self.camera.camera)
         
-        # 🏠 Häuser auf World Surface zeichnen (vor NPCs für korrektes Layering)
-        self.house_system.draw(world_surface, self.camera.camera)
+        # 🏠 Häuser zeichnen (vor NPCs für korrektes Layering)
+        self.house_system.draw(self.screen, self.camera.camera)
             
-        # Sprites auf World Surface zeichnen (normale Größe)
+        # Sprites zeichnen
         for sprite in self.all_sprites:
             screen_pos = self.camera.apply_to_point(sprite.rect.topleft)
-            world_surface.blit(sprite.image, screen_pos)
+            self.screen.blit(sprite.image, screen_pos)
             
-        # Farming-Elemente auf World Surface zeichnen
-        self.farm_ui.draw_crops(world_surface, self.camera, self.farming_system.crops)
+        # Farming-Elemente zeichnen
+        self.farm_ui.draw_crops(self.screen, self.camera, self.farming_system.crops)
         
-        # Tiere auf World Surface zeichnen
-        self.farming_system.draw_animals(world_surface, self.camera)
+        # Tiere zeichnen
+        self.farming_system.draw_animals(self.screen, self.camera)
         
-        # NPCs auf World Surface zeichnen
+        # NPCs zeichnen
         if self.use_3d_npcs:
             # 3D-NPCs werden mit OpenGL gerendert (nach 2D-Rendering)
             pass  # 3D-Rendering erfolgt später
@@ -1365,40 +1421,24 @@ class Game:
             for color, npcs in self.tribe_system.tribes.items():
                 for npc in npcs:
                     # Verwende die NPC-eigene draw-Methode mit Sprite-System
-                    npc.draw(world_surface, self.camera)
+                    npc.draw(self.screen, self.camera)
         else:
             # Fallback: Einfache 2D-NPCs zeichnen
-            self.npc_system.render(world_surface, self.camera)
+            self.npc_system.render(self.screen, self.camera)
         
-        # === Finaler Screen Rendering ===
-        # World Surface mit Zoom zum finalen Screen rendern
-        self.camera.render_world_to_screen(self.screen)
-        
-        # Lichtsystem auf finalen Screen anwenden
+        # Lichtsystem anwenden
         self.apply_lighting()
         
-        # UI-Elemente auf finalen Screen (nicht gezoomt)
+        # UI-Elemente zeichnen (nicht gezoomt)
         # Game-Time Statusleiste (Sonne/Tag/Nacht-System)
         self.game_time.draw_time_ui(self.screen, 10, 10)
         
         # Hunger-System zeichnen (Hunger-Balken)
         self.hunger_system.draw_hunger_ui(self.screen, 10, 200)
         
-        # Farm-UI zeichnen (nach Licht, aber vor anderen UIs)
+        # Farm-UI zeichnen
         mouse_pos = pygame.mouse.get_pos()
         self.farm_ui.draw(self.screen, self.camera, mouse_pos)
-        
-        # Zoom-Info anzeigen (oben links)
-        zoom_info = self.camera.get_zoom_info()
-        cache_info = self.camera.get_cache_info()
-        
-        # Erweiterte Zoom-Info mit Performance-Daten
-        zoom_text = f"Zoom: {zoom_info['zoom_percentage']}% | Target: {int(cache_info['target_zoom']*100)}% | Cache: {cache_info['cache_size']}"
-        zoom_color = (0, 255, 255) if abs(cache_info['current_zoom'] - cache_info['target_zoom']) > 0.01 else (255, 255, 255)
-        pygame.font.init()
-        font = pygame.font.Font(None, 24)
-        zoom_surface = font.render(zoom_text, True, zoom_color)
-        self.screen.blit(zoom_surface, (10, 10))
         
         # UI
         self.debug_panel.draw(self.screen)
@@ -1507,6 +1547,12 @@ class Game:
         print("🚨 X           = Bedrohung simulieren (Hierarchisches System)")
         print("🤖 T           = Tribe Members teleportieren")
         print("")
+        print("💬 CHAT-SYSTEM (2 VÖLKER):")
+        print("   C           = Chat mit 🔴 Rotem Anführer")
+        print("   Shift+C     = Chat mit 🔵 Blauem Anführer")  
+        print("   Ctrl+C      = Chat mit BEIDEN Anführern")
+        print("   Beispiele: 'baue 5 häuser', 'sammle holz', 'verteidige die stadt'")
+        print("")
         print("🏛️ HIERARCHISCHES SYSTEM:")
         print("   🤝 Diplomat-Agent: Überwacht Bedrohungen")
         print("   ⚔️ Kriegsherr-Agent: Militärische Operationen") 
@@ -1525,30 +1571,40 @@ class Game:
         self.screen.blit(shadow_overlay, (0, 0), special_flags=pygame.BLEND_MULT)
     
     def _place_demo_animals(self):
-        """Platziert Demo-Tiere in der Welt"""
+        """Platziert Demo-Tiere verteilt in der erweiterten 70x70 Welt"""
         if not USE_SIMPLE_WORLD or not self.world:
             return
             
-        # Tiere in der Nähe des Spawns platzieren
+        # Tiere weiter verteilt um Spieler herum in größerer Welt
         spawn_x, spawn_y = self.world.find_safe_spawn()
         
-        # Eine Kuh
-        cow_pos = (spawn_x + 100, spawn_y + 50)
+        # Mehr Tiere mit größerem Abstand
+        # Kuh - etwas weiter entfernt
+        cow_pos = (spawn_x + 120, spawn_y + 100)
         self.farming_system.place_animal("cow", cow_pos)
         
-        # Ein Schwein
-        pig_pos = (spawn_x - 80, spawn_y + 100)
+        # Schwein - mehr Abstand
+        pig_pos = (spawn_x - 100, spawn_y + 140)
         self.farming_system.place_animal("pig", pig_pos)
         
-        # Ein Huhn
-        chicken_pos = (spawn_x + 50, spawn_y - 70)
+        # Huhn - größerer Abstand
+        chicken_pos = (spawn_x + 90, spawn_y - 110)
         self.farming_system.place_animal("chicken", chicken_pos)
         
-        # Ein Schaf
-        sheep_pos = (spawn_x - 50, spawn_y - 50)
+        # Schaf - erweitert
+        sheep_pos = (spawn_x - 90, spawn_y - 90)
         self.farming_system.place_animal("sheep", sheep_pos)
         
-        print("Demo-Tiere platziert: Kuh, Schwein, Huhn, Schaf")
+        # Zusätzliche Tiere für größere Welt
+        # Zweite Kuh weiter weg
+        cow2_pos = (spawn_x + 180, spawn_y - 80)
+        self.farming_system.place_animal("cow", cow2_pos)
+        
+        # Zweites Huhn
+        chicken2_pos = (spawn_x - 150, spawn_y + 80)
+        self.farming_system.place_animal("chicken", chicken2_pos)
+        
+        print("Demo-Tiere platziert: 2 Kühe, Schwein, 2 Hühner, Schaf (erweiterte Verteilung)")
         print("Steuerung:")
         print("1/2 = Weizen/Karotte pflanzen (auf Farmland)")
         print("W = Gießen, H = Ernten")
@@ -1557,7 +1613,9 @@ class Game:
         print("🤖 I = AI Debug-Modus, K = AI Stats")
         print("🤖 R = Ressourcen anzeigen, B = Baufortschritt")
         print("🤖 O = Ressourcen-Boost (zum Testen)")
-        print("💬 C = Chat mit Anführer (z.B. 'baue 5 häuser')")
+        print("💬 C = Chat mit 🔴 Rotem Anführer")
+        print("💬 Shift+C = Chat mit 🔵 Blauem Anführer")
+        print("💬 Ctrl+C = Chat mit BEIDEN Anführern")
 
 if __name__ == '__main__':
     Game().run()

@@ -1,5 +1,6 @@
 import random
 import os
+import math
 import pygame
 from settings import (
     GRASS_TILE_PATH,
@@ -18,6 +19,7 @@ from settings import (
     SIMPLE_WORLD_LAKE_CENTER_REL,
     HOUSE_IMAGE_PATH,
 )
+from asset_manager import asset_manager
 
 class SimpleWorld:
     def __init__(self, area_width_tiles=None, area_height_tiles=None, tree_density=None, seed=None):
@@ -33,64 +35,71 @@ class SimpleWorld:
         self.width = self.area_width_tiles * TILE_SIZE
         self.height = self.area_height_tiles * TILE_SIZE
 
-        # Assets
-        self.grass_tile = pygame.image.load(GRASS_TILE_PATH).convert_alpha()
-        self.oak_tree = pygame.image.load(OAK_TREE_PATH).convert_alpha()
-        self.farmland_tile = pygame.image.load(FARMLAND_TILE_PATH).convert_alpha()
-        self.water_tile = pygame.image.load(WATER_TILE_PATH).convert_alpha()
-        self.path_tile = pygame.image.load(PATH_TILE_PATH).convert_alpha()
+        # 🚀 PERFORMANCE: Asset-Manager für gecachte Tiles
+        print("🎯 Loading world assets with caching...")
+        self.grass_tile = asset_manager.load_scaled_image('Tiles/Grass_Middle.png', (TILE_SIZE, TILE_SIZE))
+        self.oak_tree = asset_manager.load_image('Outdoor decoration/Oak_Tree.png')
+        self.farmland_tile = asset_manager.load_scaled_image('Tiles/FarmLand_Tile.png', (TILE_SIZE, TILE_SIZE))
+        self.water_tile = asset_manager.load_scaled_image('Tiles/Water_Middle.png', (TILE_SIZE, TILE_SIZE))
+        self.path_tile = asset_manager.load_scaled_image('Tiles/Path_Middle.png', (TILE_SIZE, TILE_SIZE))
 
-        # Hilfsfunktionen zum Zuschneiden & Skalieren, damit keine Lücken entstehen
-        def trim_and_scale(surf: pygame.Surface) -> pygame.Surface:
-            mask = pygame.mask.from_surface(surf)
-            if mask.count() == 0:
-                return pygame.transform.scale(surf, (TILE_SIZE, TILE_SIZE))
-            bbox = mask.get_bounding_rects()
-            # get_bounding_rects kann mehrere zurückgeben; nimm union
-            if bbox:
-                if len(bbox) > 1:
-                    # vereinige
-                    min_l = min(r.left for r in bbox)
-                    min_t = min(r.top for r in bbox)
-                    max_r = max(r.right for r in bbox)
-                    max_b = max(r.bottom for r in bbox)
-                    rect = pygame.Rect(min_l, min_t, max_r - min_l, max_b - min_t)
-                else:
-                    rect = bbox[0]
-                trimmed = pygame.Surface((rect.width, rect.height), pygame.SRCALPHA)
-                trimmed.blit(surf, (0, 0), rect)
-            else:
-                trimmed = surf
-            if trimmed.get_width() != TILE_SIZE or trimmed.get_height() != TILE_SIZE:
-                trimmed = pygame.transform.smoothscale(trimmed, (TILE_SIZE, TILE_SIZE))
-            return trimmed
+        # 🚀 PERFORMANCE: Pre-render Background komplett für bessere FPS
+        print("🎯 Pre-rendering world background...")
+        self.background = self._create_optimized_background()
 
-        # Nur Overlay-Tiles trimmen & skalieren (Grass wird gekachelt mit eigener Größe; Baum unverändert)
-        self.farmland_tile = trim_and_scale(self.farmland_tile)
-        self.water_tile = trim_and_scale(self.water_tile)
-        self.path_tile = trim_and_scale(self.path_tile)
-
-        # Background (grass)
-        self.background = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
-        grass_w, grass_h = self.grass_tile.get_width(), self.grass_tile.get_height()
-        for y in range(0, self.height, grass_h):
-            for x in range(0, self.width, grass_w):
-                self.background.blit(self.grass_tile, (x, y))
-
-        # Overlay grid
-        tiles_x = self.area_width_tiles
-        tiles_y = self.area_height_tiles
-        self.overlay = [[None for _ in range(tiles_x)] for _ in range(tiles_y)]
-
-        # Paths (cross) zuerst zeichnen
+        # ALTE Logik entfernt - wird jetzt in _create_optimized_background() gemacht
         center_x = tiles_x // 2
         center_y = tiles_y // 2
+        
+        # Weg rund um den See (wird teilweise überschrieben)
+        lake_rx_tiles, lake_ry_tiles = SIMPLE_WORLD_LAKE_RADII
+        lake_cx = int(SIMPLE_WORLD_LAKE_CENTER_REL[0] * tiles_x)
+        lake_cy = int(SIMPLE_WORLD_LAKE_CENTER_REL[1] * tiles_y)
+        
+        # Hauptweg: Von Westen nach Osten durch die Mitte, um den See herum
         for tx in range(tiles_x):
-            self.overlay[center_y][tx] = 'path'
+            # Weg um den See herum führen
+            if tx < lake_cx - lake_rx_tiles - 2:
+                # Links vom See - gerader Weg
+                self.overlay[center_y][tx] = 'path'
+            elif tx > lake_cx + lake_rx_tiles + 2:
+                # Rechts vom See - gerader Weg
+                self.overlay[center_y][tx] = 'path'
+            else:
+                # Am See vorbei - Weg nach Norden um den See
+                path_y = max(2, lake_cy - lake_ry_tiles - 3)
+                if 0 <= path_y < tiles_y:
+                    self.overlay[path_y][tx] = 'path'
+        
+        # Verbindungsweg von Hauptweg nach Süden um den See
+        for tx in range(max(0, lake_cx - lake_rx_tiles - 2), min(tiles_x, lake_cx + lake_rx_tiles + 3)):
+            path_y = min(tiles_y - 3, lake_cy + lake_ry_tiles + 3)
+            if 0 <= path_y < tiles_y:
+                self.overlay[path_y][tx] = 'path'
+        
+        # Vertikale Verbindungswege
+        # Westlicher Verbindungsweg
+        west_x = max(2, lake_cx - lake_rx_tiles - 6)
         for ty in range(tiles_y):
-            self.overlay[ty][center_x] = 'path'
+            if 0 <= west_x < tiles_x:
+                self.overlay[ty][west_x] = 'path'
+                
+        # Östlicher Verbindungsweg  
+        east_x = min(tiles_x - 3, lake_cx + lake_rx_tiles + 6)
+        for ty in range(tiles_y):
+            if 0 <= east_x < tiles_x:
+                self.overlay[ty][east_x] = 'path'
+        
+        # Weg um den See herum (Seepromenade)
+        for angle in range(0, 360, 6):  # Alle 6 Grad ein Punkt
+            rad = math.radians(angle)
+            # Etwas größerer Radius als der See für den Weg
+            path_x = int(lake_cx + (lake_rx_tiles + 2) * math.cos(rad))
+            path_y = int(lake_cy + (lake_ry_tiles + 2) * math.sin(rad))
+            if 0 <= path_x < tiles_x and 0 <= path_y < tiles_y:
+                self.overlay[path_y][path_x] = 'path'
 
-        # Lake (ellipse) danach – überschreibt Pfad im Inneren, so dass kein Weg hindurch geht
+        # Lake (ellipse) - nur der See
         lake_rx_tiles, lake_ry_tiles = SIMPLE_WORLD_LAKE_RADII
         lake_cx = int(SIMPLE_WORLD_LAKE_CENTER_REL[0] * tiles_x)
         lake_cy = int(SIMPLE_WORLD_LAKE_CENTER_REL[1] * tiles_y)
@@ -225,24 +234,24 @@ class SimpleWorld:
         """Erstelle 3-4 dichte Waldgebiete in der Welt"""
         self.trees = []
         
-        # 🌲 WALDGEBIETE: Definiere 6-8 Waldgebiete für größere Welt
+                # 🌲 WALDGEBIETE: Normale Waldgebiete für 50x50 Welt - KOMPAKT UM SPIELER
         forest_areas = [
             # Nordwest-Wald (oben links)
-            {'center': (self.width * 0.15, self.height * 0.15), 'radius': 200, 'density': 0.3},
+            {'center': (self.width * 0.2, self.height * 0.2), 'radius': 120, 'density': 0.3},
             # Nordost-Wald (oben rechts) 
-            {'center': (self.width * 0.85, self.height * 0.15), 'radius': 180, 'density': 0.25},
-            # Südwest-Wald (unten links) - größer, da Spieler hier spawnt
-            {'center': (self.width * 0.2, self.height * 0.8), 'radius': 250, 'density': 0.35},
+            {'center': (self.width * 0.8, self.height * 0.2), 'radius': 100, 'density': 0.25},
+            # Südwest-Wald (unten links)
+            {'center': (self.width * 0.2, self.height * 0.8), 'radius': 140, 'density': 0.35},
             # Südost-Wald (unten rechts)
-            {'center': (self.width * 0.8, self.height * 0.85), 'radius': 220, 'density': 0.3},
-            # Zentral-Wald (Mitte)
-            {'center': (self.width * 0.5, self.height * 0.3), 'radius': 160, 'density': 0.25},
-            # West-Wald (links mitte)
-            {'center': (self.width * 0.1, self.height * 0.5), 'radius': 140, 'density': 0.2},
-            # Ost-Wald (rechts mitte)  
-            {'center': (self.width * 0.9, self.height * 0.6), 'radius': 160, 'density': 0.25},
-            # Süd-Zentral-Wald (unten mitte)
-            {'center': (self.width * 0.6, self.height * 0.7), 'radius': 130, 'density': 0.2},
+            {'center': (self.width * 0.8, self.height * 0.8), 'radius': 110, 'density': 0.3},
+            # Zentral-West (links)
+            {'center': (self.width * 0.15, self.height * 0.5), 'radius': 80, 'density': 0.25},
+            # Zentral-Ost (rechts)
+            {'center': (self.width * 0.85, self.height * 0.5), 'radius': 90, 'density': 0.3},
+            # Nord-Zentral (oben mitte)
+            {'center': (self.width * 0.5, self.height * 0.15), 'radius': 80, 'density': 0.3},
+            # Zentral-Süd-Wald (unten mitte)
+            {'center': (self.width * 0.5, self.height * 0.85), 'radius': 90, 'density': 0.35},
         ]
         
         print(f"🌲 Erstelle {len(forest_areas)} Waldgebiete...")
@@ -286,11 +295,12 @@ class SimpleWorld:
                     if code in ('water', 'path', 'farm'):
                         continue
                 
-                # Prüfe Abstand zu anderen Bäumen (mindestens 30 Pixel)
+                # Prüfe Abstand zu anderen Bäumen - REDUZIERTER Abstand für dichtere Wälder
+                min_distance = 25  # Reduziert von 30 auf 25 Pixel für dichtere Wälder
                 too_close = False
                 for existing_x, existing_y in self.trees:
                     distance_to_existing = ((tx - existing_x)**2 + (ty - existing_y)**2) ** 0.5
-                    if distance_to_existing < 30:
+                    if distance_to_existing < min_distance:
                         too_close = True
                         break
                 
@@ -659,3 +669,211 @@ class SimpleWorld:
                             placed += 1
                             
             print(f"🌿 Placed {placed} {decoration_name} decorations")
+
+    def _load_mountain_asset(self):
+        """Lade Berg-Asset oder erstelle Platzhalter"""
+        base_dir = os.path.dirname(os.path.dirname(__file__))
+        mountain_paths = [
+            'assets/Outdoor decoration/stone.png',
+            'assets/Tiles/stone.png', 
+            'assets/stein.png'
+        ]
+        
+        for path in mountain_paths:
+            full_path = os.path.join(base_dir, path)
+            if os.path.exists(full_path):
+                try:
+                    sprite = pygame.image.load(full_path).convert_alpha()
+                    return pygame.transform.scale(sprite, (TILE_SIZE, TILE_SIZE))
+                except Exception:
+                    continue
+        
+        # Fallback: Erstelle grauen Berg-Tile
+        mountain_tile = pygame.Surface((TILE_SIZE, TILE_SIZE))
+        mountain_tile.fill((80, 80, 90))  # Dunkelgrau für Berge
+        # Berg-Textur hinzufügen
+        for y in range(0, TILE_SIZE, 4):
+            for x in range(0, TILE_SIZE, 4):
+                if random.random() < 0.3:
+                    pygame.draw.rect(mountain_tile, (60, 60, 70), (x, y, 2, 2))
+        return mountain_tile
+    
+    def _load_stone_asset(self):
+        """Lade Stein-Asset oder erstelle Platzhalter"""
+        base_dir = os.path.dirname(os.path.dirname(__file__))
+        stone_paths = [
+            'assets/Outdoor decoration/stone_deco.png',
+            'assets/stone_deco.png'
+        ]
+        
+        for path in stone_paths:
+            full_path = os.path.join(base_dir, path)
+            if os.path.exists(full_path):
+                try:
+                    sprite = pygame.image.load(full_path).convert_alpha()
+                    return pygame.transform.scale(sprite, (TILE_SIZE, TILE_SIZE))
+                except Exception:
+                    continue
+                    
+        # Fallback: Erstelle steinigen Tile
+        stone_tile = pygame.Surface((TILE_SIZE, TILE_SIZE))
+        stone_tile.fill((120, 120, 100))  # Heller als Berge
+        # Stein-Textur
+        for y in range(0, TILE_SIZE, 3):
+            for x in range(0, TILE_SIZE, 3):
+                if random.random() < 0.4:
+                    pygame.draw.rect(stone_tile, (100, 100, 80), (x, y, 2, 2))
+        return stone_tile
+
+    def _create_mountain_ranges(self, tiles_x, tiles_y):
+        """Erstelle kompakte Bergketten in 50x50 Welt"""
+        
+        # 🏔️ NORDWEST-BERGKETTE (oben links) - kompakter
+        nw_center_x = int(tiles_x * 0.15)
+        nw_center_y = int(tiles_y * 0.1)
+        self._create_mountain_cluster(nw_center_x, nw_center_y, 8, tiles_x, tiles_y)
+        
+        # 🏔️ NORDOST-BERGKETTE (oben rechts) - kompakter
+        ne_center_x = int(tiles_x * 0.85)
+        ne_center_y = int(tiles_y * 0.15)
+        self._create_mountain_cluster(ne_center_x, ne_center_y, 6, tiles_x, tiles_y)
+        
+        # 🏔️ SÜDWEST-BERGKETTE (unten links) - klein
+        sw_center_x = int(tiles_x * 0.1)
+        sw_center_y = int(tiles_y * 0.9)
+        self._create_mountain_cluster(sw_center_x, sw_center_y, 5, tiles_x, tiles_y)
+        
+        # 🏔️ SÜDOST-BERGKETTE (unten rechts) - klein
+        se_center_x = int(tiles_x * 0.9)
+        se_center_y = int(tiles_y * 0.85)
+        self._create_mountain_cluster(se_center_x, se_center_y, 6, tiles_x, tiles_y)
+        
+        print(f"🏔️ Kompakte Bergketten erstellt: 4 Bereiche für 50x50 Welt")
+
+    def _create_mountain_cluster(self, center_x, center_y, size, tiles_x, tiles_y):
+        """Erstelle einen Berg-Cluster um einen Mittelpunkt"""
+        for ty in range(max(0, center_y - size), min(tiles_y, center_y + size)):
+            for tx in range(max(0, center_x - size), min(tiles_x, center_x + size)):
+                distance = ((tx - center_x) ** 2 + (ty - center_y) ** 2) ** 0.5
+                
+                if distance <= size:
+                    # Berg-Wahrscheinlichkeit basierend auf Entfernung vom Zentrum
+                    mountain_chance = max(0, 1.0 - (distance / size))
+                    mountain_chance = mountain_chance ** 2  # Quadratisch für natürlichere Form
+                    
+                    if random.random() < mountain_chance:
+                        if mountain_chance > 0.7:
+                            self.overlay[ty][tx] = 'mountain'  # Hohe Berge
+                        elif mountain_chance > 0.3:
+                            self.overlay[ty][tx] = 'stone'  # Steinige Hügel
+                        # Sonst bleibt es Gras für sanfte Übergänge
+
+    def _create_winding_river(self, tiles_x, tiles_y):
+        """Erstelle einen kompakten schlängelnden Fluss in 50x50 Welt"""
+        
+        # 🌊 FLUSS-PARAMETER - kompakter für 50x50 Welt
+        # Startpunkt: Links mitte
+        start_x = int(tiles_x * 0.1)
+        start_y = int(tiles_y * 0.3)
+        
+        # Endpunkt: Rechts mitte 
+        end_x = int(tiles_x * 0.9)
+        end_y = int(tiles_y * 0.7)
+        
+        # Erstelle Fluss-Pfad mit Schlängelung
+        river_points = []
+        steps = 40  # Weniger Punkte für kompakte Welt
+        
+        for i in range(steps + 1):
+            t = i / steps  # 0.0 bis 1.0
+            
+            # Grundlinie von Start zu Ende
+            base_x = start_x + (end_x - start_x) * t
+            base_y = start_y + (end_y - start_y) * t
+            
+            # Schlängelung hinzufügen (weniger stark für kompakte Welt)
+            amplitude = 6  # Reduziert für 50x50 Welt
+            wavelength = 3  # Weniger Windungen
+            
+            offset_x = amplitude * random.uniform(-0.5, 0.5) * math.sin(t * wavelength * math.pi)
+            offset_y = amplitude * random.uniform(-0.3, 0.3) * math.cos(t * wavelength * math.pi)
+            
+            river_x = int(base_x + offset_x)
+            river_y = int(base_y + offset_y)
+            
+            # Grenzen prüfen
+            river_x = max(0, min(tiles_x - 1, river_x))
+            river_y = max(0, min(tiles_y - 1, river_y))
+            
+            river_points.append((river_x, river_y))
+        
+        # Fluss-Tiles platzieren
+        river_width = 1  # Schmaler für kompakte Welt
+        
+        for i, (rx, ry) in enumerate(river_points):
+            # Haupt-Fluss-Tile
+            if self.overlay[ry][rx] != 'mountain':  # Nicht über Berge
+                self.overlay[ry][rx] = 'water'
+            
+            # Fluss-Breite hinzufügen
+            for dy in range(-river_width, river_width + 1):
+                for dx in range(-river_width, river_width + 1):
+                    tx = rx + dx
+                    ty = ry + dy
+                    
+                    if 0 <= tx < tiles_x and 0 <= ty < tiles_y:
+                        distance = (dx**2 + dy**2)**0.5
+                        if distance <= river_width:
+                            if self.overlay[ty][tx] != 'mountain':  # Berge blockieren Fluss
+                                # Wahrscheinlichkeit basierend auf Entfernung von Flussmitte
+                                water_chance = max(0, 1.0 - (distance / river_width)) if river_width > 0 else 1.0
+                                if random.random() < water_chance * 0.8:  # 80% Chance für Wasser
+                                    self.overlay[ty][tx] = 'water'
+        
+        print(f"🌊 Kompakter Fluss erstellt: {len(river_points)} Punkte von ({start_x},{start_y}) nach ({end_x},{end_y})")
+
+        # 🌊 KLEINE BÄCHE von Bergen (weniger für kompakte Welt)
+        self._create_mountain_streams(tiles_x, tiles_y)
+
+    def _create_mountain_streams(self, tiles_x, tiles_y):
+        """Erstelle kleine Bäche die von Bergen zum Hauptfluss fließen"""
+        
+        # Finde Berg-Bereiche und erstelle Bäche
+        mountain_areas = []
+        for ty in range(tiles_y):
+            for tx in range(tiles_x):
+                if self.overlay[ty][tx] == 'mountain':
+                    mountain_areas.append((tx, ty))
+        
+        # Erstelle 3-4 kleine Bäche von Bergen
+        stream_count = 4
+        for i in range(stream_count):
+            if not mountain_areas:
+                break
+                
+            # Wähle zufälligen Berg als Startpunkt
+            start_mountain = random.choice(mountain_areas)
+            mx, my = start_mountain
+            
+            # Erstelle kurzen Bach (10-15 Tiles lang)
+            stream_length = random.randint(8, 12)
+            
+            current_x, current_y = mx, my
+            for step in range(stream_length):
+                # Bewege Richtung Hauptfluss (leicht zufällig)
+                direction_x = random.choice([-1, 0, 1])
+                direction_y = random.choice([-1, 0, 1])
+                
+                current_x += direction_x
+                current_y += direction_y
+                
+                # Grenzen prüfen
+                current_x = max(0, min(tiles_x - 1, current_x))
+                current_y = max(0, min(tiles_y - 1, current_y))
+                
+                # Bach-Tile platzieren (nur wenn nicht Berg)
+                if self.overlay[current_y][current_x] != 'mountain':
+                    if random.random() < 0.6:  # 60% Chance für Wasser-Tile
+                        self.overlay[current_y][current_x] = 'water'
+        
+        print(f"🏞️ {stream_count} Berg-Bäche erstellt")

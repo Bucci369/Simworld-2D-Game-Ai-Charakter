@@ -742,35 +742,52 @@ class Minion:
         if distance < 10.0:  # Reached waypoint
             self.current_command.parameters['current_waypoint'] = (current_waypoint_index + 1) % len(waypoints)
         
-        # Move toward current waypoint
-        direction = (target - self.position).normalize()
-        self.velocity = direction * self.max_speed * 0.7  # Slower patrol speed
+        # 🚀 SMOOTH: Improved movement toward waypoint
+        direction_vector = target - self.position
+        distance_to_target = direction_vector.length()
+        
+        if distance_to_target > 2.0:  # Avoid micro-movements
+            direction = direction_vector.normalize()
+            # 🚀 PERFORMANCE: Dynamic speed based on distance
+            speed_factor = min(1.0, distance_to_target / 50.0)  # Slow down near target
+            self.velocity = direction * self.max_speed * 0.7 * speed_factor
+        else:
+            # Stop near target to prevent oscillation
+            self.velocity *= 0.8
     
     def _update_movement(self, dt: float):
-        """Update position based on velocity"""
-        if self.velocity.length() > 0:
+        """🚀 SMOOTH NPC Movement: Ultra-optimized movement update"""
+        if self.velocity.length() > 0.01:  # Threshold to prevent micro-movements
             # Normalize velocity if too fast
-            if self.velocity.length() > self.max_speed:
+            vel_length = self.velocity.length()
+            if vel_length > self.max_speed:
                 self.velocity.scale_to_length(self.max_speed)
             
-            # Calculate new position
+            # 🚀 SMOOTH: Float-precision movement like Player
             new_position = self.position + self.velocity * dt
             
-            # Apply world boundaries (keep NPCs on map)
-            # Assuming world size around 3000x3000 pixels
+            # Apply world boundaries (keep NPCs on map) - optimized bounds
+            # Use actual world size from settings
             map_bounds = {
-                'min_x': 100,
-                'max_x': 3000,
-                'min_y': 100,
-                'max_y': 3000
+                'min_x': 50,
+                'max_x': 2200,  # 70*32 - buffer
+                'min_y': 50,
+                'max_y': 2200   # 70*32 - buffer
             }
             
-            # Clamp position to map boundaries
+            # 🚀 PERFORMANCE: Direct clamping without extra calculations
             new_position.x = max(map_bounds['min_x'], min(new_position.x, map_bounds['max_x']))
             new_position.y = max(map_bounds['min_y'], min(new_position.y, map_bounds['max_y']))
             
-            # Update position
+            # 🚀 SMOOTH: Update position with floating-point precision
             self.position = new_position
+            
+            # 🚀 PERFORMANCE: Update rect only when necessary (avoid constant int conversion)
+            if abs(self.position.x - self.rect.centerx) > 0.5 or abs(self.position.y - self.rect.centery) > 0.5:
+                self.rect.center = (int(self.position.x), int(self.position.y))
+        else:
+            # Stop micro-movements that cause jittering
+            self.velocity = pygame.Vector2(0, 0)
     
     def _check_command_completion(self):
         """Check if current command is completed and move to next"""

@@ -123,41 +123,53 @@ class Player(pygame.sprite.Sprite):
         self.image = frames[self.anim_frame_index]
 
     def update(self, dt):
+        """🚀 SMOOTH MOVEMENT: Optimierte Player-Bewegung für flüssiges Scrolling"""
         moving = False
         if self.target_pos:
             current = pygame.Vector2(self.rect.center)
             delta = self.target_pos - current
             dist = delta.length()
+            
             if dist <= self.arrive_threshold:
-                self.rect.center = (round(self.target_pos.x), round(self.target_pos.y))
+                # Ziel erreicht
+                self.rect.center = (int(self.target_pos.x), int(self.target_pos.y))
                 self.target_pos = None
             else:
                 direction = delta / dist if dist else pygame.Vector2()
                 step = direction * self.speed * dt
+                
                 if step.length() >= dist:
-                    self.rect.center = (round(self.target_pos.x), round(self.target_pos.y))
+                    # Würde über Ziel hinausschießen
+                    self.rect.center = (int(self.target_pos.x), int(self.target_pos.y))
                     self.target_pos = None
                 else:
+                    # 🚀 SMOOTH: Floating-Point-Position für sanfte Bewegung
                     tentative = current + step
                     new_rect = self.rect.copy()
-                    new_rect.center = (round(tentative.x), round(tentative.y))
                     
-                    # Kollisionserkennung abhängig vom Welt-Typ
+                    # Verwende Float-Werte für sanfte Bewegung, aber int für Rect
+                    new_center_x = tentative.x
+                    new_center_y = tentative.y
+                    new_rect.center = (int(new_center_x), int(new_center_y))
+                    
+                    # Kollisionserkennung
                     collision = False
                     if self.world:
                         if hasattr(self.world, 'is_walkable'):
-                            # HexagonWorld
-                            collision = not self.world.is_walkable(tentative.x, tentative.y)
+                            collision = not self.world.is_walkable(new_center_x, new_center_y)
                         elif hasattr(self.world, 'is_blocked_rect'):
-                            # SimpleWorld
                             collision = self.world.is_blocked_rect(new_rect)
                     
                     if collision:
-                        # Stop vor unbegehbarem Terrain
+                        # Stop bei Kollision
                         self.target_pos = None
-                        print(f"🚫 Unbegehbares Terrain! Position: ({tentative.x:.1f}, {tentative.y:.1f})")
+                        # Entferne debug print für bessere Performance
+                        # print(f"🚫 Collision at: ({new_center_x:.1f}, {new_center_y:.1f})")
                     else:
+                        # 🚀 SMOOTH: Aktualisiere Position sanft
                         self.rect = new_rect
+                        
                 self._update_direction(delta)
                 moving = True
+                
         self._animate(dt, moving)

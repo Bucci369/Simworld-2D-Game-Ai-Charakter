@@ -12,6 +12,8 @@ DEBUG_ENABLE_AUTO_SCAN = True  # PNGs automatisch auflisten
 
 TILE_SIZE = 32
 USE_SIMPLE_WORLD = True  # Wenn True: benutze prozedurale Welt aus Grass_Middle + Oak_Tree
+USE_KENNEY_WORLD = True  # 🏘️ Wenn True: benutze hochwertige Kenney Sketch Town Assets
+USE_ISOMETRIC_WORLD = True  # 🏘️ Wenn True: benutze KORREKTE isometrische Kenney Assets (ohne Lücken)
 
 # Paths
 BASE_DIR = os.path.dirname(os.path.dirname(__file__))
@@ -25,15 +27,15 @@ FARMLAND_TILE_PATH = os.path.join(ASSETS_DIR, 'Tiles', 'FarmLand_Tile.png')
 WATER_TILE_PATH = os.path.join(ASSETS_DIR, 'Tiles', 'Water_Middle.png')
 PATH_TILE_PATH = os.path.join(ASSETS_DIR, 'Tiles', 'Path_Middle.png')
 
-# Simple World Konfiguration (anpassen um Welt größer/kleiner zu machen)
-SIMPLE_WORLD_WIDTH_TILES = 50    # Größere Welt: 50x50 Tiles (1600x1600 Pixel)
-SIMPLE_WORLD_HEIGHT_TILES = 50   # Größere Welt: 50x50 Tiles (1600x1600 Pixel)
-SIMPLE_WORLD_TREE_DENSITY = 0.08  # Weniger dichte Bäume für größere Welt
+# Simple World Konfiguration - ERWEITERT für mehr Abstand zwischen Tribes
+SIMPLE_WORLD_WIDTH_TILES = 70    # Erweitert: 70x70 Tiles (2240x2240 Pixel) für mehr Platz
+SIMPLE_WORLD_HEIGHT_TILES = 70   # Erweitert: 70x70 Tiles (2240x2240 Pixel) für mehr Platz
+SIMPLE_WORLD_TREE_DENSITY = 0.12  # Höhere Dichte für größere Wälder
 SIMPLE_WORLD_SEED = 42           # Für reproduzierbare Platzierung; None für Zufall
-SIMPLE_WORLD_FARMLAND_PATCHES = 3  # Mehr Farmland-Patches
-SIMPLE_WORLD_FARMLAND_RADIUS_RANGE = (2, 4)  # Größere Farmland-Patches
-SIMPLE_WORLD_LAKE_RADII = (4, 3)  # Größerer See
-SIMPLE_WORLD_LAKE_CENTER_REL = (0.65, 0.35)  # versetzt, damit Pfad nicht durch muss
+SIMPLE_WORLD_FARMLAND_PATCHES = 6  # Mehr Farmland-Patches für größere Welt
+SIMPLE_WORLD_FARMLAND_RADIUS_RANGE = (3, 6)  # Größere Farmland-Patches
+SIMPLE_WORLD_LAKE_RADII = (6, 4)  # Größerer See für erweiterte Welt
+SIMPLE_WORLD_LAKE_CENTER_REL = (0.7, 0.3)  # versetzt, damit Pfad nicht durch muss
 HOUSE_IMAGE_PATH = os.path.join(ASSETS_DIR, 'Outdoor decoration', 'House.png')
 
 # Player Sprite Sheet Konfiguration

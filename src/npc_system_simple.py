@@ -149,11 +149,19 @@ class NPC2D:
         if desired_velocity.length() > max_speed_current:
             desired_velocity.scale_to_length(max_speed_current)
         
-        # Smooth transition
-        self.velocity = self.velocity.lerp(desired_velocity, 0.1)
+        # 🚀 SMOOTH: Improved velocity interpolation for smoother movement
+        lerp_factor = min(0.15, 8.0 * dt)  # Adaptive lerp based on frame time
+        self.velocity = self.velocity.lerp(desired_velocity, lerp_factor)
         
-        # Position update
-        self.position += self.velocity * dt
+        # 🚀 SMOOTH: Position update with floating-point precision
+        new_position = self.position + self.velocity * dt
+        
+        # 🚀 PERFORMANCE: Only update rect when position changes significantly
+        if abs(new_position.x - self.position.x) > 0.1 or abs(new_position.y - self.position.y) > 0.1:
+            self.position = new_position
+        else:
+            # Prevent micro-jittering
+            self.velocity *= 0.95
         
         # Richtung für Sprite
         self._update_direction()
@@ -544,44 +552,46 @@ class NPCSystem2D:
         return neighbors
     
     def render(self, screen, camera):
-        """Rendere alle NPCs mit echten Player-Sprites"""
+        """🚀 SMOOTH NPC Rendering: Optimized for smooth movement"""
         if not self.npcs:
             return
         
+        # 🚀 PERFORMANCE: Pre-calculate camera values
+        screen_width = screen.get_width()
+        screen_height = screen.get_height()
+        camera_left = camera.camera.left
+        camera_top = camera.camera.top
         rendered_count = 0
         
         for npc in self.npcs:
-            # Berechne Screen-Position basierend auf Kamera
-            screen_x = npc.position.x - camera.camera.left
-            screen_y = npc.position.y - camera.camera.top
+            # 🚀 SMOOTH: Use floating-point positions for smooth rendering
+            screen_x = npc.position.x - camera_left
+            screen_y = npc.position.y - camera_top
             
-            # Culling: Rendere nur sichtbare NPCs
-            if (-50 <= screen_x <= screen.get_width() + 50 and 
-                -50 <= screen_y <= screen.get_height() + 50):
+            # 🚀 PERFORMANCE: Optimized frustum culling with larger buffer
+            if (-64 <= screen_x <= screen_width + 64 and 
+                -64 <= screen_y <= screen_height + 64):
                 
-                # Hole aktuellen Sprite
+                # 🚀 SMOOTH: Get sprite and render with optimized positioning
                 sprite = npc.get_current_sprite()
                 
-                # Zentriere Sprite
-                sprite_rect = sprite.get_rect()
-                sprite_rect.center = (screen_x, screen_y)
+                if sprite:
+                    # 🚀 PERFORMANCE: Avoid rect creation, use direct positioning
+                    sprite_w = sprite.get_width()
+                    sprite_h = sprite.get_height()
+                    render_x = int(screen_x - sprite_w // 2)
+                    render_y = int(screen_y - sprite_h // 2)
+                    
+                    # Render sprite with integer positions for crisp pixels
+                    screen.blit(sprite, (render_x, render_y))
+                    rendered_count += 1
                 
-                # Rendere Sprite
-                screen.blit(sprite, sprite_rect)
-                
-                # Debug-Info für Leader
-                if hasattr(npc, 'is_leader') and npc.is_leader:
-                    # Kleine Krone über Leader
-                    crown_pos = (screen_x - 5, screen_y - 25)
-                    pygame.draw.polygon(screen, (255, 215, 0), [
-                        (crown_pos[0], crown_pos[1] + 8),
-                        (crown_pos[0] + 3, crown_pos[1]),
-                        (crown_pos[0] + 5, crown_pos[1] + 5),
-                        (crown_pos[0] + 7, crown_pos[1]),
-                        (crown_pos[0] + 10, crown_pos[1] + 8)
-                    ])
-                
-                rendered_count += 1
+                    # Debug-Info für Leader - optimized rendering
+                    if hasattr(npc, 'is_leader') and npc.is_leader:
+                        # 🚀 PERFORMANCE: Simplified crown rendering
+                        crown_x = int(screen_x - 5)
+                        crown_y = int(screen_y - 25)
+                        pygame.draw.circle(screen, (255, 215, 0), (crown_x + 5, crown_y + 4), 6, 2)
         
         # Debug-Info
         if hasattr(self, 'debug_enabled') and self.debug_enabled:
